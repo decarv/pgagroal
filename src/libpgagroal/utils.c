@@ -45,6 +45,7 @@
 #include <openssl/pem.h>
 #include <sys/types.h>
 #include <err.h>
+#include <assert.h>
 
 #ifndef EVBACKEND_LINUXAIO
 #define EVBACKEND_LINUXAIO 0x00000040U
@@ -954,75 +955,240 @@ pgagroal_backtrace(void)
 
 #endif
 
-bool
-parse_command(int argc,
-              char** argv,
-              int offset,
-              char* command,
-              char* subcommand,
-              char** key,
-              char* default_key,
-              char** value,
-              char* default_value)
+/* Parser for pgagroal-cli commands */
+
+void
+parse_command(const char* command,
+              int* command_code,
+              const struct pgagroal_command command_table[])
 {
-
-   // sanity check: if no arguments, nothing to parse!
-   if (argc <= offset)
+   *command_code = COMMAND_UNKNOWN;
+   for (int command_index = 0; command_index < COMMAND_COUNT; command_index++)
    {
-      return false;
-   }
-
-   // first of all check if the command is the same
-   // as the first argument on the command line
-   if (strncmp(argv[offset], command, MISC_LENGTH))
-   {
-      return false;
-   }
-
-   if (subcommand)
-   {
-      // thre must be a subcommand check
-      offset++;
-
-      if (argc <= offset)
+      if (strncmp(command, command_table[command_index].string, MISC_LENGTH) == 0)
       {
-         // not enough command args!
-         return false;
-      }
-
-      if (strncmp(argv[offset], subcommand, MISC_LENGTH))
-      {
-         return false;
+         *command_code = command_index;
+         break;
       }
    }
+}
 
-   if (key)
+void
+parse_subcommand(const char* subcommand,
+                 int command_code,
+                 int* subcommand_code,
+                 const struct pgagroal_command command_table[],
+                 const struct pgagroal_command subcommand_table[])
+{
+   int subcommands_count = command_table[command_code].subcommands_count;
+   const int* subcommands = &(command_table[command_code].subcommands[0]);
+   for (int subcommand_index = 0; subcommand_index < subcommands_count; subcommand_index++)
    {
-      // need to evaluate the database or server or configuration key
-      offset++;
-      *key = argc > offset ? argv[offset] : default_key;
-      if (*key == NULL || strlen(*key) == 0)
+      if (strncmp(subcommand, subcommand_table[subcommands[subcommand_index]].string, MISC_LENGTH) == 0)
       {
-         goto error;
+         *subcommand_code = subcommands[subcommand_index];
+         break;
       }
+   }
+}
 
-      // do I need also a value?
-      if (value)
+bool
+command_parser(int argc,
+               char** argv,
+               int offset,
+               struct pgagroal_parsed_command* cmd,
+               char error_message[MISC_LENGTH],
+               const struct pgagroal_command command_table[],
+               const struct pgagroal_command subcommand_table[])
+{
+#define CONSUME(_x) _x = (offset < argc) ? argv[offset++] : NULL
+
+   int state = STATE_START;
+   char* command = NULL;
+   char* subcommand = NULL;
+   char* tmp = NULL;
+
+   while (1)
+   {
+      switch (state)
       {
-         offset++;
-         *value = argc > offset ? argv[offset] : default_value;
+         case STATE_START:
+            if (argc <= offset)
+            {
+               sprintf(error_message, "pgagroal-cli requires a command\n");
+               state = STATE_ERROR;
+            }
+            else
+            {
+               state = STATE_COMMAND;
+            }
+            break;
+         case STATE_COMMAND:
+            CONSUME(command);
+            parse_command(command, &cmd->command_code, command_table);
+            if (cmd->command_code == COMMAND_UNKNOWN)
+            {
+               sprintf(error_message, "Invalid command '%s'\n", command);
+               state = STATE_ERROR;
+            }
+            else
+            {
+               state = command_table[cmd->command_code].transition_states;
+            }
+            break;
+         case STATE_SUBCOMMAND:
+            CONSUME(subcommand);
+            if (subcommand == NULL)
+            {
+               sprintf(error_message, "Command '%s' requires a subcommand\n", command);
+               state = STATE_ERROR;
+            }
+            else
+            {
+               parse_subcommand(subcommand, cmd->command_code, &cmd->subcommand_code, command_table, subcommand_table);
+               if (cmd->subcommand_code == COMMAND_UNKNOWN)
+               {
+                  sprintf(error_message, "Invalid subcommand '%s' for command '%s'\n", subcommand, command);
+                  state = STATE_ERROR;
 
-         if (*value == NULL || strlen(*value) == 0)
-         {
-            goto error;
-         }
-
+               }
+               else
+               {
+                  state = subcommand_table[cmd->subcommand_code].transition_states;
+               }
+            }
+            break;
+         case STATE_ARGUMENT:
+            CONSUME(cmd->args[++cmd->arg_cnt]);
+            if (cmd->args[cmd->arg_cnt] == NULL)
+            {
+               sprintf(error_message, "Command '%s%s%s' requires an argument\n", command,
+                       command && subcommand ? " " : "", subcommand ? subcommand : "");
+               state = STATE_ERROR;
+            }
+            else
+            {
+               state = STATE_ARGUMENT | STATE_END;
+            }
+            break;
+         case STATE_SUBCOMMAND | STATE_ARGUMENT:
+            CONSUME(tmp);
+            if (tmp == NULL)
+            {
+               sprintf(error_message,
+                       "Command '%s%s%s' requires either a subcommand or an argument\n",
+                       command, command && subcommand ? " " : "", subcommand ? subcommand : "");
+               state = STATE_ERROR;
+            }
+            else
+            {
+               parse_subcommand(tmp, cmd->command_code, &cmd->subcommand_code, command_table, subcommand_table);
+               if (cmd->subcommand_code == COMMAND_UNKNOWN)
+               {
+                  cmd->args[++(cmd->arg_cnt)] = tmp;
+                  state = STATE_ARGUMENT | STATE_END;
+               }
+               else
+               {
+                  subcommand = tmp;
+                  state = subcommand_table[cmd->subcommand_code].transition_states;
+               }
+            }
+            break;
+         case STATE_SUBCOMMAND | STATE_END:
+            CONSUME(subcommand);
+            if (subcommand == NULL)
+            {
+               state = STATE_END;
+            }
+            else
+            {
+               parse_subcommand(subcommand, cmd->command_code, &cmd->subcommand_code, command_table, subcommand_table);
+               if (cmd->subcommand_code == COMMAND_UNKNOWN)
+               {
+                  sprintf(error_message, "Invalid subcommand '%s' for command '%s'\n", subcommand, command);
+                  state = STATE_ERROR;
+               }
+               else
+               {
+                  state = subcommand_table[cmd->subcommand_code].transition_states;
+               }
+            }
+            break;
+         case STATE_ARGUMENT | STATE_END:
+            CONSUME(cmd->args[++cmd->arg_cnt]);
+            if (cmd->args[cmd->arg_cnt] == NULL)
+            {
+               state = STATE_END;
+            }
+            break;
+         case STATE_ERROR:
+            goto failure;
+            break;
+         case STATE_END:
+            CONSUME(cmd->args[++cmd->arg_cnt]);
+            if (cmd->args[cmd->arg_cnt] != NULL)
+            {
+               sprintf(error_message, "Command '%s%s%s' does not expect an argument\n", command,
+                       command && subcommand ? " " : "", subcommand ? subcommand : "");
+               state = STATE_ERROR;
+            }
+            else
+            {
+               goto success;
+            }
+            break;
+         default:
+            errx(1, "Unknown state");
+            break;
       }
+   }
+
+failure:
+#undef CONSUME
+
+   return false;
+
+success:
+#undef CONSUME
+
+   /* Deprecation warning: warn the user if there is enough information about deprecation */
+   if (command_table[cmd->command_code].deprecated
+       && pgagroal_version_ge(command_table[cmd->command_code].deprecated_since_major,
+                              command_table[cmd->command_code].deprecated_since_minor, 0))
+   {
+      warnx("command <%s> has been deprecated by <%s> since version %d.%d",
+            command_table[cmd->command_code].string,
+            command_table[cmd->command_code].deprecated_by,
+            command_table[cmd->command_code].deprecated_since_major,
+            command_table[cmd->command_code].deprecated_since_minor);
+   }
+
+   if (cmd->subcommand_code != COMMAND_UNKNOWN)
+   {
+      cmd->action = subcommand_table[cmd->subcommand_code].action;
+      cmd->mode = subcommand_table[cmd->subcommand_code].mode;
+      cmd->log_trace = subcommand_table[cmd->subcommand_code].log_trace;
+      cmd->args[0] = cmd->args[0] == NULL ? subcommand_table[cmd->subcommand_code].default_argument : cmd->args[0];
+   }
+   else
+   {
+      cmd->action = command_table[cmd->command_code].action;
+      cmd->mode = command_table[cmd->command_code].mode;
+      cmd->log_trace = command_table[cmd->command_code].log_trace;
+      cmd->args[0] = cmd->args[0] == NULL ? command_table[cmd->command_code].default_argument : cmd->args[0];
    }
 
    return true;
+}
 
-error:
+bool
+parse_command_simple(int argc,
+                     char** argv,
+                     int offset,
+                     char* command,
+                     char* subcommand)
+{
    return false;
 }
 
@@ -1036,46 +1202,7 @@ parse_deprecated_command(int argc,
                          unsigned int deprecated_since_major,
                          unsigned int deprecated_since_minor)
 {
-   // sanity check: if no arguments, nothing to parse!
-   if (argc <= offset)
-   {
-      return false;
-   }
-
-   // first of all check if the command is the same
-   // as the first argument on the command line
-   if (strncmp(argv[offset], command, MISC_LENGTH))
-   {
-      return false;
-   }
-
-   if (value)
-   {
-      // need to evaluate the database or server
-      offset++;
-      *value = argc > offset ? argv[offset] : "*";
-   }
-
-   // warn the user if there is enough information
-   // about deprecation
-   if (deprecated_by
-       && pgagroal_version_ge(deprecated_since_major, deprecated_since_minor, 0))
-   {
-      warnx("command <%s> has been deprecated by <%s> since version %d.%d",
-            command, deprecated_by, deprecated_since_major, deprecated_since_minor);
-   }
-
-   return true;
-}
-
-bool
-parse_command_simple(int argc,
-                     char** argv,
-                     int offset,
-                     char* command,
-                     char* subcommand)
-{
-   return parse_command(argc, argv, offset, command, subcommand, NULL, NULL, NULL, NULL);
+   return false;
 }
 
 /**

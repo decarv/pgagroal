@@ -85,6 +85,373 @@ static int config_ls(SSL* ssl, int socket, char output_format);
 static int config_get(SSL* ssl, int socket, char* config_key, bool verbose, char output_format);
 static int config_set(SSL* ssl, int socket, char* config_key, char* config_value, bool verbose, char output_format);
 
+enum pgagroal_cli_command_code {
+   /* Command codes: add commands to the end of this list */
+   COMMAND_FLUSH = 0,
+   COMMAND_PING,
+   COMMAND_ENABLE,
+   COMMAND_DISABLE,
+   COMMAND_SHUTDOWN,
+   COMMAND_STATUS,
+   COMMAND_SWITCH_TO,
+   COMMAND_CONF,
+   COMMAND_CLEAR,
+
+   /* Deprecated command codes */
+   DEPRECATED_COMMAND_FLUSH_IDLE, // "flush-idle"
+   DEPRECATED_COMMAND_FLUSH_ALL, // "flush-all"
+   DEPRECATED_COMMAND_FLUSH_GRACEFULLY, // "flush-gracefully"
+   DEPRECATED_COMMAND_STOP, // "stop" for "shutdown immediate"
+   DEPRECATED_COMMAND_CANCEL_SHUTDOWN, // "cancel-shutdown"
+   DEPRECATED_COMMAND_SHUTDOWN_GRACEFULLY, // "gracefully" for "shutdown gracefully"
+   DEPRECATED_COMMAND_STATUS_DETAILS, // "details" for "status details"
+   DEPRECATED_COMMAND_IS_ALIVE, // "is-alive" for "ping"
+   DEPRECATED_COMMAND_RESET, // "reset" for "clear prometheus"
+   DEPRECATED_COMMAND_RESET_SERVER, // "reset-server" for "clear server"
+   DEPRECATED_COMMAND_RELOAD, // "reload" for "conf reload"
+   DEPRECATED_COMMAND_CONFIG_GET, // "config-get" for "conf get"
+   DEPRECATED_COMMAND_CONFIG_SET, // "config-set" for "conf set"
+
+   /* Subcommand codes */
+   COMMAND_FLUSH_GRACEFULLY,
+   COMMAND_FLUSH_IDLE,
+   COMMAND_FLUSH_ALL,
+   COMMAND_SHUTDOWN_GRACEFULLY,
+   COMMAND_SHUTDOWN_IMMEDIATE,
+   COMMAND_SHUTDOWN_CANCEL,
+   COMMAND_STATUS_DETAILS,
+   COMMAND_CONF_RELOAD,
+   COMMAND_CONF_GET,
+   COMMAND_CONF_SET,
+   COMMAND_CONF_LS,
+   COMMAND_CLEAR_SERVER,
+   COMMAND_CLEAR_PROMETHEUS,
+};
+
+const struct pgagroal_command command_table[] = {
+   [COMMAND_FLUSH] = {
+      .string = "flush",
+      .transition_states = STATE_END | STATE_SUBCOMMAND,
+      .subcommands_count = 3,
+      .subcommands = {COMMAND_FLUSH_ALL, COMMAND_FLUSH_GRACEFULLY, COMMAND_FLUSH_IDLE},
+      .deprecated = false,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_GRACEFULLY,
+      .log_trace = "<flush gracefully> [%s]",
+      .default_argument = "*",
+   },
+   [COMMAND_PING] = {
+      .string = "ping",
+      .transition_states = STATE_END,
+      .subcommands_count = 0,
+      .deprecated = false,
+      .action = ACTION_ISALIVE,
+      .log_trace = "<is-alive>"
+   },
+   [COMMAND_ENABLE] = {
+      .string = "enable",
+      .transition_states = STATE_END | STATE_ARGUMENT,
+      .subcommands_count = 0,
+      .deprecated = false,
+      .action = ACTION_ENABLEDB,
+      .log_trace = "<enable> [%s]",
+      .default_argument = "*",
+   },
+   [COMMAND_DISABLE] = {
+      .string = "disable",
+      .transition_states = STATE_END | STATE_ARGUMENT,
+      .subcommands_count = 0,
+      .deprecated = false,
+      .action = ACTION_DISABLEDB,
+      .log_trace = "<disable> [%s]",
+      .default_argument = "*",
+   },
+   [COMMAND_SHUTDOWN] = {
+      .string = "shutdown",
+      .transition_states = STATE_END | STATE_SUBCOMMAND,
+      .subcommands_count = 3,
+      .subcommands = {COMMAND_SHUTDOWN_IMMEDIATE, COMMAND_SHUTDOWN_CANCEL, COMMAND_SHUTDOWN_GRACEFULLY},
+      .deprecated = false,
+      .action = ACTION_GRACEFULLY,
+      .log_trace = "<shutdown gracefully>"
+   },
+   [COMMAND_STATUS] = {
+      .string = "status",
+      .transition_states = STATE_END | STATE_SUBCOMMAND,
+      .subcommands_count = 1,
+      .subcommands = {COMMAND_STATUS_DETAILS},
+      .deprecated = false,
+      .action = ACTION_STATUS,
+      .log_trace = "<status>"
+   },
+   [COMMAND_SWITCH_TO] = {
+      .string = "switch-to",
+      .transition_states = STATE_ARGUMENT,
+      .subcommands_count = 0,
+      .deprecated = false,
+      .action = ACTION_SWITCH_TO,
+      .log_trace = "<switch-to> [%s]"
+   },
+   [COMMAND_CONF] = {
+      .string = "conf",
+      .transition_states = STATE_SUBCOMMAND,
+      .subcommands_count = 4,
+      .subcommands = {COMMAND_CONF_GET, COMMAND_CONF_LS, COMMAND_CONF_RELOAD, COMMAND_CONF_SET},
+      .deprecated = false
+   },
+   [COMMAND_CLEAR] = {
+      .string = "clear",
+      .transition_states = STATE_SUBCOMMAND | STATE_ARGUMENT,
+      .subcommands_count = 2,
+      .subcommands = {COMMAND_CLEAR_SERVER, COMMAND_CLEAR_PROMETHEUS},
+      .action = ACTION_RESET_SERVER,
+      .log_trace = "<clear server [%s]>",
+      .default_argument = "server",
+      .deprecated = false,
+   },
+
+   /* Deprecated commands */
+   [DEPRECATED_COMMAND_FLUSH_IDLE] = {
+      .string = "flush-idle",
+      .transition_states = STATE_END,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_IDLE,
+      .log_trace = "<flush idle> [%s]",
+      .default_argument = "*",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "flush idle",
+   },
+   [DEPRECATED_COMMAND_FLUSH_ALL] = {
+      .string = "flush-all",
+      .transition_states = STATE_END,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_ALL,
+      .log_trace = "<flush all> [%s]",
+      .default_argument = "*",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "flush all",
+   },
+   [DEPRECATED_COMMAND_FLUSH_GRACEFULLY] = {
+      .string = "flush-gracefully",
+      .transition_states = STATE_END,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_GRACEFULLY,
+      .log_trace = "<flush gracefully> [%s]",
+      .default_argument = "*",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "flush gracefully",
+   },
+   [DEPRECATED_COMMAND_STOP] = {
+      .string = "stop",
+      .transition_states = STATE_END,
+      .action = ACTION_STOP,
+      .log_trace = "<shutdown immediate>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "shutdown immediate"
+   },
+   [DEPRECATED_COMMAND_CANCEL_SHUTDOWN] = {
+      .string = "cancel-shutdown",
+      .transition_states = STATE_END,
+      .action = ACTION_CANCELSHUTDOWN,
+      .log_trace = "<shutdown cancel>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "shutdown cancel"
+   },
+   [DEPRECATED_COMMAND_SHUTDOWN_GRACEFULLY] = {
+      .string = "gracefully",
+      .transition_states = STATE_END,
+      .action = ACTION_GRACEFULLY,
+      .log_trace = "<shutdown gracefully>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "shutdown gracefully"
+   },
+   [DEPRECATED_COMMAND_STATUS_DETAILS] = {
+      .string = "details",
+      .transition_states = STATE_END,
+      .action = ACTION_STATUS_DETAILS,
+      .log_trace = "<status details>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "status details"
+   },
+   [DEPRECATED_COMMAND_IS_ALIVE] = {
+      .string = "is-alive",
+      .transition_states = STATE_END,
+      .action = ACTION_ISALIVE,
+      .log_trace = "<ping>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "ping"
+   },
+   [DEPRECATED_COMMAND_RESET] = {
+      .string = "reset",
+      .transition_states = STATE_END,
+      .action = ACTION_RESET,
+      .log_trace = "<clear prometheus>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "clear prometheus"
+   },
+   [DEPRECATED_COMMAND_RESET_SERVER] = {
+      .string = "reset-server",
+      .transition_states = STATE_END,
+      .action = ACTION_RESET_SERVER,
+      .log_trace = "<clear server [%s]>",
+      .default_argument = "*",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "clear server"
+   },
+   [DEPRECATED_COMMAND_RELOAD] = {
+      .string = "reload",
+      .transition_states = STATE_END,
+      .action = ACTION_RELOAD,
+      .log_trace = "<conf reload>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "conf reload"
+   },
+   [DEPRECATED_COMMAND_CONFIG_GET] = {
+      .string = "config-get",
+      .transition_states = STATE_ARGUMENT,
+      .action = ACTION_CONFIG_GET,
+      .log_trace = "<conf get [%s]>",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "conf get"
+   },
+   [DEPRECATED_COMMAND_CONFIG_SET] = {
+      .string = "config-set",
+      .transition_states = STATE_ARGUMENT,
+      .action = ACTION_CONFIG_SET,
+      .log_trace = "<conf set> [%s] = [%s]",
+      .deprecated = true,
+      .deprecated_since_major = 1,
+      .deprecated_since_minor = 6,
+      .deprecated_by = "conf set"
+   }
+};
+
+const struct pgagroal_command subcommand_table[] = {
+
+   [COMMAND_SHUTDOWN_GRACEFULLY] = {
+      .string = "gracefully",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_GRACEFULLY,
+      .log_trace = "<shutdown gracefully>"
+   },
+   [COMMAND_SHUTDOWN_IMMEDIATE] = {
+      .string = "immediate",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_STOP,
+      .log_trace = "<shutdown immediate>"
+   },
+   [COMMAND_SHUTDOWN_CANCEL] = {
+      .string = "cancel",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_CANCELSHUTDOWN,
+      .log_trace = "<shutdown cancel>"
+   },
+   [COMMAND_CONF_RELOAD] = {
+      .string = "reload",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_RELOAD,
+      .log_trace = "<conf reload>"
+   },
+   [COMMAND_CONF_GET] = {
+      .string = "get",
+      .transition_states = STATE_ARGUMENT,
+      .deprecated = false,
+      .action = ACTION_CONFIG_GET,
+      .log_trace = "<conf get> [%s]"
+   },
+   [COMMAND_CONF_SET] = {
+      .string = "set",
+      .transition_states = STATE_ARGUMENT,
+      .deprecated = false,
+      .action = ACTION_CONFIG_SET,
+      .log_trace = "<conf set> [%s] = [%s]"
+   },
+   [COMMAND_CONF_LS] = {
+      .string = "ls",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_CONFIG_LS,
+      .log_trace = "<conf ls>"
+   },
+   [COMMAND_CLEAR_SERVER] = {
+      .string = "server",
+      .transition_states = STATE_END | STATE_ARGUMENT,
+      .deprecated = false,
+      .action = ACTION_RESET_SERVER,
+      .log_trace = "<clear server> [%s]",
+      .default_argument = "\0",
+   },
+   [COMMAND_FLUSH_IDLE] = {
+      .string = "idle",
+      .transition_states = STATE_END | STATE_ARGUMENT,
+      .deprecated = false,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_IDLE,
+      .log_trace = "<flush idle> [%s]",
+      .default_argument = "*"
+   },
+   [COMMAND_FLUSH_GRACEFULLY] = {
+      .string = "gracefully",
+      .transition_states = STATE_END | STATE_ARGUMENT,
+      .deprecated = false,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_GRACEFULLY,
+      .log_trace = "<flush gracefully> [%s]",
+      .default_argument = "*",
+   },
+   [COMMAND_FLUSH_ALL] = {
+      .string = "all",
+      .transition_states = STATE_END | STATE_ARGUMENT,
+      .deprecated = false,
+      .action = ACTION_FLUSH,
+      .mode = FLUSH_ALL,
+      .log_trace = "<flush all> [%s]",
+      .default_argument = "*"
+   },
+   [COMMAND_CLEAR_PROMETHEUS] = {
+      .string = "prometheus",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_RESET,
+      .log_trace = "<clear prometheus>"
+   },
+   [COMMAND_STATUS_DETAILS] = {
+      .string = "details",
+      .transition_states = STATE_END,
+      .deprecated = false,
+      .action = ACTION_STATUS_DETAILS,
+      .log_trace = "<status details>"
+   },
+};
+
 static void
 version(void)
 {
@@ -168,15 +535,13 @@ main(int argc, char** argv)
    size_t size;
    int32_t action = ACTION_UNKNOWN;
    int32_t mode = FLUSH_IDLE;
-   char* database = NULL;
    char un[MAX_USERNAME_LENGTH];
-   char* server = NULL;
    struct configuration* config = NULL;
    bool remote_connection = false;
    long l_port;
-   char* config_key = NULL; /* key for a configuration setting */
-   char* config_value = NULL; /* value for a configuration setting */
    char output_format = COMMAND_OUTPUT_FORMAT_TEXT;
+   char error_message[MISC_LENGTH] = {0};
+   struct pgagroal_parsed_command cmd = {.args = {0}, .command_code = COMMAND_UNKNOWN, .subcommand_code = COMMAND_UNKNOWN, .arg_cnt = -1};
 
    while (1)
    {
@@ -355,222 +720,111 @@ main(int argc, char** argv)
       }
    }
 
-   if (parse_command(argc, argv, optind, "flush", "idle", &database, "*", NULL, NULL)
-       || parse_deprecated_command(argc, argv, optind, "flush-idle", &database, "flush idle", 1, 6))
+   if (!command_parser(argc, argv, optind, &cmd, error_message, command_table, subcommand_table))
    {
-      mode = FLUSH_IDLE;
-      action = ACTION_FLUSH;
-      pgagroal_log_trace("Command: <flush idle> [%s]", database);
+      goto done;
    }
-   else if (parse_command(argc, argv, optind, "flush", "all", &database, "*", NULL, NULL)
-            || parse_deprecated_command(argc, argv, optind, "flush-all", &database, "flush all", 1, 6))
-   {
-      mode = FLUSH_ALL;
-      action = ACTION_FLUSH;
-      pgagroal_log_trace("Command: <flush all> [%s]", database);
-   }
-   else if (parse_command(argc, argv, optind, "flush", "gracefully", &database, "*", NULL, NULL)
-            || parse_command(argc, argv, optind, "flush", NULL, &database, "*", NULL, NULL)
-            || parse_deprecated_command(argc, argv, optind, "flush-gracefully", &database, "flush", 1, 6))
-   {
-      mode = FLUSH_GRACEFULLY;
-      action = ACTION_FLUSH;
-      pgagroal_log_trace("Command: <flush gracefully> [%s]", database);
-   }
-   else if (parse_command(argc, argv, optind, "enable", NULL, &database, "*", NULL, NULL))
-   {
-      action = ACTION_ENABLEDB;
-      pgagroal_log_trace("Command: <enable> [%s]", database);
-   }
-   else if (parse_command(argc, argv, optind, "disable", NULL, &database, "*", NULL, NULL))
-   {
-      action = ACTION_DISABLEDB;
-      pgagroal_log_trace("Command: <disable> [%s]", database);
-   }
-   else if (parse_command_simple(argc, argv, optind, "shutdown", "immediate")
-            || parse_deprecated_command(argc, argv, optind, "stop", NULL, "shutdown immediate", 1, 6))
-   {
-      action = ACTION_STOP;
-      pgagroal_log_trace("Command: <shutdown immediate>");
-   }
-   else if (parse_command_simple(argc, argv, optind, "shutdown", "cancel")
-            || parse_deprecated_command(argc, argv, optind, "cancel-shutdown", NULL, "shutdown cancel", 1, 6))
-   {
-      action = ACTION_CANCELSHUTDOWN;
-      pgagroal_log_trace("Command: <shutdown cancel>");
-   }
-   else if (parse_command_simple(argc, argv, optind, "shutdown", "gracefully")
-            || parse_command_simple(argc, argv, optind, "shutdown", NULL)
-            || parse_deprecated_command(argc, argv, optind, "gracefully", NULL, "shutdown gracefully", 1, 6))
-   {
-      action = ACTION_GRACEFULLY;
-      pgagroal_log_trace("Command: <shutdown gracefully>");
-   }
-   else if (parse_command_simple(argc, argv, optind, "status", "details")
-            || parse_deprecated_command(argc, argv, optind, "details", NULL, "status details", 1, 6))
-   {
-      /* the 'status details' has to be parsed before the normal 'status' command !*/
-      action = ACTION_STATUS_DETAILS;
-      pgagroal_log_trace("Command: <status details>");
-   }
-   else if (parse_command_simple(argc, argv, optind, "status", NULL))
-   {
-      action = ACTION_STATUS;
-      pgagroal_log_trace("Command: <status>");
-   }
-   else if (parse_command_simple(argc, argv, optind, "ping", NULL)
-            || parse_deprecated_command(argc, argv, optind, "is-alive", NULL, "ping", 1, 6))
-   {
-      action = ACTION_ISALIVE;
-      pgagroal_log_trace("Command: <is-alive>");
-   }
-   else if (parse_command_simple(argc, argv, optind, "clear", "prometheus")
-            || parse_deprecated_command(argc, argv, optind, "reset", NULL, "clear prometheus", 1, 6))
-   {
-      action = ACTION_RESET;
-      pgagroal_log_trace("Command: <clear prometheus>");
-   }
-   else if (parse_command(argc, argv, optind, "clear", "server", &server, "\0", NULL, NULL)
-            || parse_command(argc, argv, optind, "clear", NULL, &server, "\0", NULL, NULL)
-            || parse_deprecated_command(argc, argv, optind, "reset-server", &server, "clear server", 1, 6))
-   {
-      action = strlen(server) > 0 ? ACTION_RESET_SERVER : ACTION_UNKNOWN;
-      pgagroal_log_trace("Command: <clear server> [%s]", server);
-   }
-   else if (parse_command(argc, argv, optind, "switch-to", NULL, &server, "\0", NULL, NULL))
-   {
-      action = strlen(server) > 0 ? ACTION_SWITCH_TO : ACTION_UNKNOWN;
-      pgagroal_log_trace("Command: <switch-to> [%s]", server);
-   }
-   else if (parse_command_simple(argc, argv, optind, "conf", "reload")
-            || parse_deprecated_command(argc, argv, optind, "reload", NULL, "conf reload", 1, 6))
-   {
-      /* Local connection only */
-      if (configuration_path != NULL)
-      {
-         action = ACTION_RELOAD;
-      }
-      pgagroal_log_trace("Command: <reload>");
-   }
-   else if (parse_command(argc, argv, optind, "conf", "get", &config_key, NULL, NULL, NULL)
-            || parse_deprecated_command(argc, argv, optind, "config-get", NULL, "conf get", 1, 6))
-   {
-      action = config_key != NULL && strlen(config_key) > 0 ? ACTION_CONFIG_GET : ACTION_UNKNOWN;
-      pgagroal_log_trace("Command: <conf get> [%s]", config_key);
-   }
-   else if (parse_command(argc, argv, optind, "conf", "set", &config_key, NULL, &config_value, NULL)
-            || parse_deprecated_command(argc, argv, optind, "config-set", NULL, "conf set", 1, 6))
-   {
-      // if there is no configuration key set the action to unknown, so the help screen will be printed
-      action = config_key != NULL && strlen(config_key) > 0 ? ACTION_CONFIG_SET : ACTION_UNKNOWN;
-      pgagroal_log_trace("Command: <conf set> [%s] = [%s]", config_key, config_value);
-   }
-   else if (parse_command_simple(argc, argv, optind, "conf", "ls"))
-   {
-      pgagroal_log_debug("Command: <conf ls>");
-      action = ACTION_CONFIG_LS;
-   }
+   action = cmd.action;
+   mode = cmd.mode;
+   pgagroal_log_trace(cmd.log_trace, cmd.args[0], cmd.args[1]);
 
-   if (action != ACTION_UNKNOWN)
+   if (!remote_connection)
    {
-      if (!remote_connection)
+      /* Local connection */
+      if (pgagroal_connect_unix_socket(config->unix_socket_dir, MAIN_UDS, &socket))
       {
-         /* Local connection */
-         if (pgagroal_connect_unix_socket(config->unix_socket_dir, MAIN_UDS, &socket))
+         exit_code = 1;
+         goto done;
+      }
+   }
+   else
+   {
+      /* Remote connection */
+      if (pgagroal_connect(host, atoi(port), &socket))
+      {
+         /* Remote connection */
+
+         l_port = strtol(port, NULL, 10);
+         if ((errno == ERANGE && (l_port == LONG_MAX || l_port == LONG_MIN)) || (errno != 0 && l_port == 0))
+         {
+            warnx("Specified port %s out of range", port);
+            goto done;
+         }
+
+         // cannot connect to port less than 1024 because pgagroal
+         // cannot be run as root!
+         if (l_port <= 1024)
+         {
+            warnx("Not allowed port %ld", l_port);
+            goto done;
+         }
+
+         if (pgagroal_connect(host, (int)l_port, &socket))
+         {
+            warnx("No route to host: %s:%ld\n", host, l_port);
+            goto done;
+         }
+
+      }
+
+      /* User name */
+      if (username == NULL)
+      {
+username:
+         printf("User name: ");
+
+         memset(&un, 0, sizeof(un));
+         if (fgets(&un[0], sizeof(un), stdin) == NULL)
          {
             exit_code = 1;
             goto done;
          }
+         un[strlen(un) - 1] = 0;
+         username = &un[0];
       }
-      else
+
+      if (username == NULL || strlen(username) == 0)
       {
-         /* Remote connection */
-         if (pgagroal_connect(host, atoi(port), &socket))
+         goto username;
+      }
+
+      /* Password */
+      if (password == NULL)
+      {
+         printf("Password : ");
+         password = pgagroal_get_password();
+         printf("\n");
+      }
+
+      for (int i = 0; i < strlen(password); i++)
+      {
+         if ((unsigned char)(*(password + i)) & 0x80)
          {
-            /* Remote connection */
 
-            l_port = strtol(port, NULL, 10);
-            if ((errno == ERANGE && (l_port == LONG_MAX || l_port == LONG_MIN)) || (errno != 0 && l_port == 0))
-            {
-               warnx("Specified port %s out of range", port);
-               goto done;
-            }
-
-            // cannot connect to port less than 1024 because pgagroal
-            // cannot be run as root!
-            if (l_port <= 1024)
-            {
-               warnx("Not allowed port %ld", l_port);
-               goto done;
-            }
-
-            if (pgagroal_connect(host, (int)l_port, &socket))
-            {
-               warnx("No route to host: %s:%ld\n", host, l_port);
-               goto done;
-            }
-
-         }
-
-         /* User name */
-         if (username == NULL)
-         {
-username:
-            printf("User name: ");
-
-            memset(&un, 0, sizeof(un));
-            if (fgets(&un[0], sizeof(un), stdin) == NULL)
-            {
-               exit_code = 1;
-               goto done;
-            }
-            un[strlen(un) - 1] = 0;
-            username = &un[0];
-         }
-
-         if (username == NULL || strlen(username) == 0)
-         {
-            goto username;
-         }
-
-         /* Password */
-         if (password == NULL)
-         {
-            printf("Password : ");
-            password = pgagroal_get_password();
-            printf("\n");
-         }
-
-         for (int i = 0; i < strlen(password); i++)
-         {
-            if ((unsigned char)(*(password + i)) & 0x80)
-            {
-
-               warnx("Bad credentials for %s\n", username);
-               goto done;
-            }
-         }
-
-         /* Authenticate */
-         if (pgagroal_remote_management_scram_sha256(username, password, socket, &s_ssl) != AUTH_SUCCESS)
-         {
-            printf("pgagroal-cli: Bad credentials for %s\n", username);
+            warnx("Bad credentials for %s\n", username);
             goto done;
          }
+      }
+
+      /* Authenticate */
+      if (pgagroal_remote_management_scram_sha256(username, password, socket, &s_ssl) != AUTH_SUCCESS)
+      {
+         printf("pgagroal-cli: Bad credentials for %s\n", username);
+         goto done;
       }
    }
 
    if (action == ACTION_FLUSH)
    {
-      exit_code = flush(s_ssl, socket, mode, database);
+      exit_code = flush(s_ssl, socket, mode, cmd.args[0]);
    }
    else if (action == ACTION_ENABLEDB)
    {
-      exit_code = enabledb(s_ssl, socket, database);
+      exit_code = enabledb(s_ssl, socket, cmd.args[0]);
    }
    else if (action == ACTION_DISABLEDB)
    {
-      exit_code = disabledb(s_ssl, socket, database);
+      exit_code = disabledb(s_ssl, socket, cmd.args[0]);
    }
    else if (action == ACTION_GRACEFULLY)
    {
@@ -602,23 +856,31 @@ username:
    }
    else if (action == ACTION_RESET_SERVER)
    {
-      exit_code = reset_server(s_ssl, socket, server);
+      exit_code = reset_server(s_ssl, socket, cmd.args[0]);
    }
    else if (action == ACTION_SWITCH_TO)
    {
-      exit_code = switch_to(s_ssl, socket, server);
+      exit_code = switch_to(s_ssl, socket, cmd.args[0]);
    }
    else if (action == ACTION_RELOAD)
    {
-      exit_code = reload(s_ssl, socket);
+      if (configuration_path == NULL)
+      {
+         sprintf(error_message, "Configuration path has to specified to use <reload>");
+         action = ACTION_UNKNOWN;
+      }
+      else
+      {
+         exit_code = reload(s_ssl, socket);
+      }
    }
    else if (action == ACTION_CONFIG_GET)
    {
-      exit_code = config_get(s_ssl, socket, config_key, verbose, output_format);
+      exit_code = config_get(s_ssl, socket, cmd.args[0], verbose, output_format);
    }
    else if (action == ACTION_CONFIG_SET)
    {
-      exit_code = config_set(s_ssl, socket, config_key, config_value, verbose, output_format);
+      exit_code = config_set(s_ssl, socket, cmd.args[0], cmd.args[1], verbose, output_format);
    }
    else if (action == ACTION_CONFIG_LS)
    {
@@ -642,9 +904,13 @@ done:
 
    pgagroal_disconnect(socket);
 
+   if (error_message[0])
+   {
+      printf("%s", error_message);
+   }
+
    if (action == ACTION_UNKNOWN)
    {
-      printf("pgagroal-cli: unknown command %s\n", argv[optind]);
       usage();
       exit_code = 1;
    }

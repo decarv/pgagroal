@@ -375,6 +375,51 @@ pgagroal_backtrace(void);
 
 #endif
 
+/*
+ * Command parsing for pgagroal-cli
+ */
+
+#define COMMAND_UNKNOWN (-1)
+
+struct pgagroal_parsed_command
+{
+   int command_code;
+   int subcommand_code;
+   char* args[MISC_LENGTH];
+   int arg_cnt;
+   int action;
+   int mode;
+   char* log_trace;
+};
+
+#define MAX_NUMBER_OF_SUBCOMMANDS 4
+#define COMMAND_COUNT 22
+
+#define STATE_START       0b000001
+#define STATE_COMMAND     0b000010
+#define STATE_SUBCOMMAND  0b000100
+#define STATE_ARGUMENT    0b001000
+#define STATE_ERROR       0b010000
+#define STATE_END         0b100000
+
+struct pgagroal_command
+{
+   const char* string;
+   int transition_states;
+   int subcommands_count;
+   int subcommands[MAX_NUMBER_OF_SUBCOMMANDS];
+   char* default_argument;
+   char* log_trace;
+   int action;
+   int mode;
+
+   /* Deprecation information */
+   bool deprecated;
+   unsigned int deprecated_since_major;
+   unsigned int deprecated_since_minor;
+   const char* deprecated_by;
+};
+
 /**
  * Utility function to parse the command line
  * and search for a command.
@@ -422,23 +467,21 @@ pgagroal_backtrace(void);
  *
  * that in turn are match by
  *
- * parse_command(argv, argc, "flush", "gracefully", &database, "*", NULL, NULL)
- * parse_command(argv, argc, "flush", "gracefully", NULL, "*", NULL, NULL)
- * parse_command(argv, argc, "flush", NULL, NULL, "*", NULL, NULL)
- * parse_command(argv, argc, "flush", NULL, &database, "*", NULL, NULL)
- * parse_command(argv, argc, "conf", "get", &config_key, NULL, NULL, NULL)
- * parse_command(argv, argc, "conf", "set", &config_key, NULL, &config_value, NULL)
+ * command_parser(argv, argc, "flush", "gracefully", &database, "*", NULL, NULL)
+ * command_parser(argv, argc, "flush", "gracefully", NULL, "*", NULL, NULL)
+ * command_parser(argv, argc, "flush", NULL, NULL, "*", NULL, NULL)
+ * command_parser(argv, argc, "flush", NULL, &database, "*", NULL, NULL)
+ * command_parser(argv, argc, "conf", "get", &config_key, NULL, NULL, NULL)
+ * command_parser(argv, argc, "conf", "set", &config_key, NULL, &config_value, NULL)
  */
 bool
-parse_command(int argc,
-              char** argv,
-              int offset,
-              char* command,
-              char* subcommand,
-              char** key,
-              char* default_key,
-              char** value,
-              char* default_value);
+command_parser(int argc,
+               char** argv,
+               int offset,
+               struct pgagroal_parsed_command* cmd,
+               char error_message[MISC_LENGTH],
+               const struct pgagroal_command command_table[],
+               const struct pgagroal_command subcommand_table[]);
 
 /*
  * A wrapper function to parse a single command (and its subcommand)
@@ -452,7 +495,7 @@ parse_command(int argc,
  *
  * parse_command_simple( argc, argv, optind, "conf", "reload");
  *
- * @see parse_command
+ * @see command_parser
  */
 bool
 parse_command_simple(int argc,
