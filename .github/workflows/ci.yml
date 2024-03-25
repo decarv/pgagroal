@@ -36,7 +36,7 @@ jobs:
       run: sudo apt install -y postgresql
     - name: Start postgres
       run: |
-        output=$(su postgres -c '/usr/lib/postgresql/$(psql --version | grep -Eo "[0-9]{1,2}" | head -1)/bin/pg_ctl start -D /etc/postgresql/16/main/' | grep "database system is ready to accept connections")
+        output=$(sudo -u postgres /usr/lib/postgresql/16/bin/pg_ctl start -D /etc/postgresql/16/main/ | grep "database system is ready to accept connections")
         if [ -z "$output" ]; then exit 1; fi
         exit
 #    - name: GCC/mkdir
