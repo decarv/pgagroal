@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - master
+    - new-test-pgagroal-status-ci
   pull_request:
     branches:
     - master
@@ -53,12 +54,21 @@ jobs:
         ./pgagroal >> /dev/null 2>&1 &
         pid=$!
         sleep 5
-        ./pgagroal-cli status  
-        if [ $? != 0 ]; then exit 1; else kill $pid; fi
+        ./pgagroal-cli status
+      working-directory: /home/runner/work/pgagroal/pgagroal/build/src/
+    - name: GCC/Stop pgagroal & postgres
+      run: |
+        ./pgagroal-cli shutdown
+        version=$(pg_config --version | grep -Eo "[0-9]{1,2}" | head -1)
+        sudo -u postgres /usr/lib/postgresql/${version}/bin/pg_ctl stop -D /etc/postgresql/${version}/main/
       working-directory: /home/runner/work/pgagroal/pgagroal/build/src/
     - name: rm -Rf
       run: rm -Rf build/
       working-directory: /home/runner/work/pgagroal/pgagroal/
+    - name: Start postgres
+      run: |
+        version=$(pg_config --version | grep -Eo "[0-9]{1,2}" | head -1)
+        sudo -u postgres /usr/lib/postgresql/${version}/bin/pg_ctl start -D /etc/postgresql/${version}/main/
     - name: CLANG/mkdir
       run: mkdir build
       working-directory: /home/runner/work/pgagroal/pgagroal/
@@ -75,8 +85,13 @@ jobs:
         ./pgagroal >> /dev/null 2>&1 &
         pid=$!
         sleep 5
-        ./pgagroal-cli status  
-        if [ $? != 0 ]; then exit 1; else kill $pid; fi
+        ./pgagroal-cli status
+      working-directory: /home/runner/work/pgagroal/pgagroal/build/src/
+    - name: CLANG/Stop pgagroal & postgres
+      run: |
+        ./pgagroal-cli shutdown
+        version=$(pg_config --version | grep -Eo "[0-9]{1,2}" | head -1)
+        sudo -u postgres /usr/lib/postgresql/${version}/bin/pg_ctl stop -D /etc/postgresql/${version}/main/
       working-directory: /home/runner/work/pgagroal/pgagroal/build/src/
 
 
@@ -126,11 +141,20 @@ jobs:
          pid=$!
          sleep 5
          ./pgagroal-cli status  
-         if [ $? != 0 ]; then exit 1; else kill $pid; fi
+      working-directory: /Users/runner/work/pgagroal/pgagroal/build/src/
+    - name: GCC/Stop pgagroal & postgres
+      run: |
+        ./pgagroal-cli shutdown
+        installed_pg=$(brew search postgresql | grep postgresql@ | tail -n 1)
+        brew services stop ${installed_pg}
       working-directory: /Users/runner/work/pgagroal/pgagroal/build/src/
     - name: rm -Rf
       run: rm -Rf build/
       working-directory: /Users/runner/work/pgagroal/pgagroal/
+    - name: Start postgres
+      run: |
+        installed_pg=$(brew search postgresql | grep postgresql@ | tail -n 1)
+        brew services start ${installed_pg}
     - name: CLANG/mkdir
       run: mkdir build
       working-directory: /Users/runner/work/pgagroal/pgagroal/
@@ -148,5 +172,10 @@ jobs:
         pid=$!
         sleep 5
         ./pgagroal-cli status  
-        if [ $? != 0 ]; then exit 1; fi
+      working-directory: /Users/runner/work/pgagroal/pgagroal/build/src/
+    - name: CLANG/Stop pgagroal & postgres
+      run: |
+        ./pgagroal-cli shutdown
+        installed_pg=$(brew search postgresql | grep postgresql@ | tail -n 1)
+        brew services stop ${installed_pg}
       working-directory: /Users/runner/work/pgagroal/pgagroal/build/src/
