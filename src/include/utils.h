@@ -43,7 +43,7 @@ extern "C" {
  */
 struct signal_info
 {
-   struct ev_signal signal; /**< The libev base type */
+   struct ev_watcher* ev;           /**< The libev base type */
    int slot;                /**< The slot */
 };
 
@@ -52,7 +52,7 @@ struct signal_info
  */
 struct accept_io
 {
-   struct ev_io io;
+   struct ev_watcher* ev;
    int socket;
    char** argv;
 };

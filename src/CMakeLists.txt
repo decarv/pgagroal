@@ -37,6 +37,24 @@ if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     ${CJSON_LIBRARIES}
   )
 
+  #
+  # Event library backend
+  #
+  option(USE_URING "Use either io_uring or epoll as the Linux EV backend." ON)
+  find_package(liburing 2.5)
+  if (NOT LIBURING_FOUND)
+    option(USE_URING OFF)  # If liburing not present, fallback to epoll
+  endif()
+
+  if (USE_URING)
+    add_compile_options(-DUSE_URING=1)
+    include_directories(${LIBURING_INCLUDE_DIRS})
+    message(STATUS "liburing found")
+  else ()
+    add_compile_options(-DUSE_URING=0)
+    message(STATUS "liburing not found: fallback to epoll")
+  endif()
+
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined")
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")
   find_program(HOMEBREW_EXECUTABLE brew)

@@ -45,10 +45,10 @@
 #include <sys/socket.h>
 
 static int  performance_initialize(void*, void**, size_t*);
-static void performance_start(struct ev_loop* loop, struct worker_io*);
-static void performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents);
-static void performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents);
-static void performance_stop(struct ev_loop* loop, struct worker_io*);
+static void performance_start(struct worker_io* );
+static void performance_client(struct ev_watcher* , int );
+static void performance_server(struct ev_watcher*, int );
+static void performance_stop(struct worker_io* );
 static void performance_destroy(void*, size_t);
 static void performance_periodic(void);
 
@@ -77,7 +77,7 @@ performance_initialize(void* shmem, void** pipeline_shmem, size_t* pipeline_shme
 }
 
 static void
-performance_start(struct ev_loop* loop, struct worker_io* w)
+performance_start(struct worker_io* w)
 {
    struct main_configuration* config;
 
@@ -95,7 +95,7 @@ performance_start(struct ev_loop* loop, struct worker_io* w)
 }
 
 static void
-performance_stop(struct ev_loop* loop, struct worker_io* w)
+performance_stop(struct worker_io* w)
 {
 }
 
@@ -110,14 +110,14 @@ performance_periodic(void)
 }
 
 static void
-performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
+performance_client(struct ev_watcher* watcher, int revents)
 {
    int status = MESSAGE_STATUS_ERROR;
    struct worker_io* wi = NULL;
    struct message* msg = NULL;
    struct main_configuration* config = NULL;
 
-   wi = (struct worker_io*)watcher;
+   wi = (struct worker_io*)watcher->data;
 
    status = pgagroal_read_socket_message(wi->client_fd, &msg);
    if (likely(status == MESSAGE_STATUS_OK))
@@ -152,7 +152,7 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       goto client_error;
    }
 
-   ev_break (loop, EVBREAK_ONE);
+   pgagroal_ev_break(watcher);
    return;
 
 client_done:
@@ -172,7 +172,7 @@ client_done:
    }
 
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 client_error:
@@ -185,7 +185,7 @@ client_error:
 
    exit_code = WORKER_CLIENT_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 server_error:
@@ -198,12 +198,12 @@ server_error:
 
    exit_code = WORKER_SERVER_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 }
 
 static void
-performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
+performance_server(struct ev_watcher* watcher, int revents)
 {
    int status = MESSAGE_STATUS_ERROR;
    bool fatal = false;
@@ -254,7 +254,7 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
       goto server_error;
    }
 
-   ev_break(loop, EVBREAK_ONE);
+   pgagroal_ev_break(watcher);
    return;
 
 client_error:
@@ -267,7 +267,7 @@ client_error:
 
    exit_code = WORKER_CLIENT_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 server_done:
@@ -278,7 +278,7 @@ server_done:
    errno = 0;
 
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 server_error:
@@ -291,6 +291,6 @@ server_error:
 
    exit_code = WORKER_SERVER_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 }

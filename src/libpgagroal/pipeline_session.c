@@ -50,10 +50,10 @@
 #include <sys/socket.h>
 
 static int  session_initialize(void*, void**, size_t*);
-static void session_start(struct ev_loop* loop, struct worker_io*);
-static void session_client(struct ev_loop* loop, struct ev_io* watcher, int revents);
-static void session_server(struct ev_loop* loop, struct ev_io* watcher, int revents);
-static void session_stop(struct ev_loop* loop, struct worker_io*);
+static void session_start(struct worker_io*);
+static void session_client(struct ev_watcher*, int);
+static void session_server(struct ev_watcher*, int);
+static void session_stop(struct worker_io*);
 static void session_destroy(void*, size_t);
 static void session_periodic(void);
 
@@ -130,7 +130,7 @@ session_initialize(void* shmem, void** pipeline_shmem, size_t* pipeline_shmem_si
 }
 
 static void
-session_start(struct ev_loop* loop, struct worker_io* w)
+session_start(struct worker_io* w)
 {
    struct client_session* client;
    struct main_configuration* config;
@@ -161,7 +161,7 @@ session_start(struct ev_loop* loop, struct worker_io* w)
 }
 
 static void
-session_stop(struct ev_loop* loop, struct worker_io* w)
+session_stop(struct worker_io* w)
 {
    struct client_session* client;
 
@@ -281,7 +281,7 @@ session_periodic(void)
 }
 
 static void
-session_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
+session_client(struct ev_watcher* watcher, int revents)
 {
    int status = MESSAGE_STATUS_ERROR;
    struct worker_io* wi = NULL;
@@ -383,7 +383,7 @@ session_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    client_inactive(wi->slot);
 
-   ev_break(loop, EVBREAK_ONE);
+   pgagroal_ev_break(watcher);
    return;
 
 client_done:
@@ -404,7 +404,7 @@ client_done:
    }
 
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 client_error:
@@ -418,7 +418,7 @@ client_error:
 
    exit_code = WORKER_CLIENT_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 server_error:
@@ -432,7 +432,7 @@ server_error:
 
    exit_code = WORKER_SERVER_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 failover:
@@ -441,12 +441,12 @@ failover:
 
    exit_code = WORKER_FAILOVER;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 }
 
 static void
-session_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
+session_server(struct ev_watcher* watcher, int revents)
 {
    int status = MESSAGE_STATUS_ERROR;
    bool fatal = false;
@@ -550,7 +550,7 @@ session_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    client_inactive(wi->slot);
 
-   ev_break(loop, EVBREAK_ONE);
+   pgagroal_ev_break(watcher);
    return;
 
 client_error:
@@ -565,7 +565,7 @@ client_error:
 
    exit_code = WORKER_CLIENT_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 server_done:
@@ -578,7 +578,7 @@ server_done:
    client_inactive(wi->slot);
 
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 
 server_error:
@@ -593,7 +593,7 @@ server_error:
 
    exit_code = WORKER_SERVER_FAILURE;
    running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_break(watcher);
    return;
 }
 
