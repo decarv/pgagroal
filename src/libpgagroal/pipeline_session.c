@@ -369,7 +369,7 @@ session_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       else if (msg->kind == 'X')
       {
          saw_x = true;
-         running = 0;
+         pgagroal_ev_loop_break(loop);
       }
    }
    else if (status == MESSAGE_STATUS_ZERO)
@@ -383,7 +383,6 @@ session_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    client_inactive(wi->slot);
 
-   ev_break(loop, EVBREAK_ONE);
    return;
 
 client_done:
@@ -403,8 +402,8 @@ client_done:
       exit_code = WORKER_SERVER_FAILURE;
    }
 
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 client_error:
@@ -417,8 +416,8 @@ client_error:
    client_inactive(wi->slot);
 
    exit_code = WORKER_CLIENT_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_error:
@@ -431,8 +430,8 @@ server_error:
    client_inactive(wi->slot);
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 failover:
@@ -440,8 +439,8 @@ failover:
    client_inactive(wi->slot);
 
    exit_code = WORKER_FAILOVER;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
 
@@ -535,7 +534,7 @@ session_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
          if (fatal)
          {
             exit_code = WORKER_SERVER_FATAL;
-            running = 0;
+            pgagroal_ev_loop_break(loop);
          }
       }
    }
@@ -550,7 +549,6 @@ session_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    client_inactive(wi->slot);
 
-   ev_break(loop, EVBREAK_ONE);
    return;
 
 client_error:
@@ -564,8 +562,8 @@ client_error:
    client_inactive(wi->slot);
 
    exit_code = WORKER_CLIENT_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_done:
@@ -577,8 +575,8 @@ server_done:
 
    client_inactive(wi->slot);
 
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_error:
@@ -592,8 +590,8 @@ server_error:
    client_inactive(wi->slot);
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
 

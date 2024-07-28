@@ -68,7 +68,7 @@ static void route_not_found(char** response);
 static void route_found(char** response, char* password);
 static int router(SSL* ssl, int client_fd);
 
-static volatile int keep_running = 1;
+struct ev_context ev_ctx = {0};
 static char** argv_ptr;
 static struct ev_loop* main_loop = NULL;
 static struct accept_io io_main;
@@ -243,16 +243,16 @@ start_vault_io(void)
    int sockfd = *server_fd;
 
    memset(&io_main, 0, sizeof(struct accept_io));
-   ev_io_init((struct ev_io*)&io_main, accept_vault_cb, sockfd, EV_READ);
+   pgagroal_ev_io_accept_init((struct ev_io*)&io_main, sockfd, accept_vault_cb);
    io_main.socket = sockfd;
    io_main.argv = argv_ptr;
-   ev_io_start(main_loop, (struct ev_io*)&io_main);
+   pgagroal_ev_io_start(main_loop, (struct ev_io*)&io_main);
 }
 
 static void
 shutdown_vault_io(void)
 {
-   ev_io_stop(main_loop, (struct ev_io*)&io_main);
+   pgagroal_ev_io_stop(main_loop, (struct ev_io*)&io_main);
    pgagroal_disconnect(io_main.socket);
    errno = 0;
 }
@@ -428,19 +428,18 @@ read_users_path:
    }
 
    // -- Initialize the watcher and start loop --
-   main_loop = ev_default_loop(0);
-
+   main_loop = pgagroal_ev_init(ev_ctx);
    if (!main_loop)
    {
       errx(1, "pgagroal-vault: No loop implementation");
    }
 
-   ev_signal_init((struct ev_signal*)&signal_watcher[0], shutdown_cb, SIGTERM);
+   pgagroal_ev_signal_init((struct ev_signal*)&signal_watcher[0], shutdown_cb, SIGTERM);
 
    for (int i = 0; i < 1; i++)
    {
       signal_watcher[i].slot = -1;
-      ev_signal_start(main_loop, (struct ev_signal*)&signal_watcher[i]);
+      pgagroal_ev_signal_start(main_loop, (struct ev_signal*)&signal_watcher[i]);
    }
 
    start_vault_io();
@@ -450,10 +449,7 @@ read_users_path:
                      config->common.host,
                      config->common.port);
 
-   while (keep_running)
-   {
-      ev_loop(main_loop, 0);
-   }
+pgagroal_ev_loop(main_loop);
 
    pgagroal_log_info("pgagroal-vault: shutdown");
    // -- Free all memory --
@@ -468,15 +464,15 @@ static void
 shutdown_cb(struct ev_loop* loop, ev_signal* w, int revents)
 {
    pgagroal_log_debug("pgagroal-vault: Shutdown requested");
-   ev_break(loop, EVBREAK_ALL);
-   keep_running = 0;
+   pgagroal_ev_loop_break(loop);
+
 }
 
 static void
 accept_vault_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 {
    struct sockaddr_in6 client_addr;
-   socklen_t client_addr_length;
+
    int client_fd;
    char address[INET6_ADDRSTRLEN];
    pid_t pid;
@@ -494,12 +490,12 @@ accept_vault_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    memset(&address, 0, sizeof(address));
 
-   client_addr_length = sizeof(client_addr);
-   client_fd = accept(watcher->fd, (struct sockaddr*)&client_addr, &client_addr_length);
+
+   client_fd = watcher->client_fd;
 
    if (client_fd == -1)
    {
-      if (accept_fatal(errno) && keep_running)
+      if (accept_fatal(errno) && pgagroal_ev_loop_is_running(loop))
       {
          pgagroal_log_warn("accept_vault_cb: Restarting listening port due to: %s (%d)", strerror(errno), watcher->fd);
 
@@ -549,7 +545,7 @@ accept_vault_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       memcpy(addr, address, strlen(address));
 
-      ev_loop_fork(loop);
+      /* TODO: no need for this, right? : pgagroal_ev_loop_fork(loop); */
       shutdown_vault_io();
 
       if (router(s_ssl, client_fd))

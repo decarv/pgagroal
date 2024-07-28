@@ -19,7 +19,6 @@ if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
   #
   include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${LIBEV_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIR}
     ${SYSTEMD_INCLUDE_DIRS}
     ${CJSON_INCLUDE_DIRS}
@@ -29,13 +28,25 @@ if (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
   # Library directories
   #
   link_libraries(
-    ${LIBEV_LIBRARIES}
     ${OPENSSL_CRYPTO_LIBRARY}
     ${OPENSSL_SSL_LIBRARY}
     ${SYSTEMD_LIBRARIES}
     ${LIBATOMIC_LIBRARY}
     ${CJSON_LIBRARIES}
   )
+
+  #
+  # Event library backend
+  #
+  if (USE_URING)
+    add_compile_options(-DUSE_URING=1)
+    include_directories(${LIBURING_INCLUDE_DIRS})
+    link_libraries(${LIBURING_LIBRARY})
+    message(STATUS "pgagroal ev handling backend: io_uring")
+  else ()
+    add_compile_options(-DUSE_URING=0)
+    message(STATUS "pgagroal ev handling backend: epoll")
+  endif()
 
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined")
 elseif(${CMAKE_SYSTEM_NAME} STREQUAL "Darwin")

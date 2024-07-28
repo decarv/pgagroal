@@ -152,8 +152,8 @@ transaction_start(struct ev_loop* loop, struct worker_io* w)
 error:
 
    exit_code = WORKER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
 
@@ -173,7 +173,7 @@ transaction_stop(struct ev_loop* loop, struct worker_io* w)
          pgagroal_write_rollback(NULL, config->connections[slot].fd);
       }
 
-      ev_io_stop(loop, (struct ev_io*)&server_io);
+      pgagroal_ev_io_stop(loop, (struct ev_io*)&server_io);
       pgagroal_tracking_event_slot(TRACKER_TX_RETURN_CONNECTION_STOP, w->slot);
       pgagroal_return_connection(slot, w->server_ssl, true);
       slot = -1;
@@ -220,7 +220,7 @@ transaction_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
       memcpy(&config->connections[slot].appname[0], &appname[0], MAX_APPLICATION_NAME);
 
-      ev_io_init((struct ev_io*)&server_io, transaction_server, config->connections[slot].fd, EV_READ);
+      pgagroal_ev_io_accept_init((struct ev_io*)&server_io, config->connections[slot].fd, transaction_server);
       server_io.client_fd = wi->client_fd;
       server_io.server_fd = config->connections[slot].fd;
       server_io.slot = slot;
@@ -229,7 +229,7 @@ transaction_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
       fatal = false;
 
-      ev_io_start(loop, (struct ev_io*)&server_io);
+      pgagroal_ev_io_start(loop, (struct ev_io*)&server_io);
    }
 
    if (wi->client_ssl == NULL)
@@ -321,7 +321,7 @@ transaction_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       else if (msg->kind == 'X')
       {
          saw_x = true;
-         running = 0;
+         /* the loop will break at the end of this function, no need for setting running to 0 */
       }
    }
    else if (status == MESSAGE_STATUS_ZERO)
@@ -333,7 +333,7 @@ transaction_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       goto client_error;
    }
 
-   ev_break(loop, EVBREAK_ONE);
+   pgagroal_ev_loop_break(loop);
    return;
 
 client_done:
@@ -351,8 +351,8 @@ client_done:
       exit_code = WORKER_SERVER_FAILURE;
    }
 
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 client_error:
@@ -363,8 +363,8 @@ client_error:
    errno = 0;
 
    exit_code = WORKER_CLIENT_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_error:
@@ -375,23 +375,23 @@ server_error:
    errno = 0;
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 failover:
 
    exit_code = WORKER_FAILOVER;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 get_error:
    pgagroal_log_warn("Failure during obtaining connection");
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
 
@@ -496,7 +496,7 @@ transaction_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
       {
          if (has_z && !in_tx && slot != -1)
          {
-            ev_io_stop(loop, (struct ev_io*)&server_io);
+            pgagroal_ev_io_stop(loop, (struct ev_io*)&server_io);
 
             if (deallocate)
             {
@@ -517,10 +517,10 @@ transaction_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
       {
          if (has_z && !in_tx && slot != -1)
          {
-            ev_io_stop(loop, (struct ev_io*)&server_io);
+            pgagroal_ev_io_stop(loop, (struct ev_io*)&server_io);
 
             exit_code = WORKER_SERVER_FATAL;
-            running = 0;
+            pgagroal_ev_loop_break(loop);
          }
       }
    }
@@ -533,7 +533,7 @@ transaction_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
       goto server_error;
    }
 
-   ev_break(loop, EVBREAK_ONE);
+   pgagroal_ev_loop_break(loop);
    return;
 
 client_error:
@@ -544,8 +544,8 @@ client_error:
    errno = 0;
 
    exit_code = WORKER_CLIENT_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_done:
@@ -554,8 +554,8 @@ server_done:
                       strerror(errno), wi->server_fd, status);
    errno = 0;
 
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_error:
@@ -566,16 +566,16 @@ server_error:
    errno = 0;
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 return_error:
    pgagroal_log_warn("Failure during connection return");
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
 
@@ -583,8 +583,8 @@ static void
 start_mgt(struct ev_loop* loop)
 {
    memset(&io_mgt, 0, sizeof(struct ev_io));
-   ev_io_init(&io_mgt, accept_cb, unix_socket, EV_READ);
-   ev_io_start(loop, &io_mgt);
+   pgagroal_ev_io_accept_init(&io_mgt, unix_socket, accept_cb);
+   pgagroal_ev_io_start(loop, &io_mgt);
 }
 
 static void
@@ -598,7 +598,7 @@ shutdown_mgt(struct ev_loop* loop)
    memset(&p, 0, sizeof(p));
    snprintf(&p[0], sizeof(p), ".s.%d", getpid());
 
-   ev_io_stop(loop, &io_mgt);
+   pgagroal_ev_io_stop(loop, &io_mgt);
    pgagroal_disconnect(unix_socket);
    errno = 0;
    pgagroal_remove_unix_socket(config->unix_socket_dir, &p[0]);
@@ -608,8 +608,6 @@ shutdown_mgt(struct ev_loop* loop)
 static void
 accept_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 {
-   struct sockaddr_in client_addr;
-   socklen_t client_addr_length;
    int client_fd;
    signed char id;
    int32_t payload_slot;
@@ -626,8 +624,8 @@ accept_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       return;
    }
 
-   client_addr_length = sizeof(client_addr);
-   client_fd = accept(watcher->fd, (struct sockaddr*)&client_addr, &client_addr_length);
+
+   client_fd = watcher->client_fd;
    if (client_fd == -1)
    {
       pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);

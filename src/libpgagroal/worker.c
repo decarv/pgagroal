@@ -48,10 +48,11 @@
 #include <sys/types.h>
 #include <openssl/ssl.h>
 
-volatile int running = 1;
 volatile int exit_code = WORKER_FAILURE;
 
-static void signal_cb(struct ev_loop* loop, ev_signal* w, int revents);
+/* TODO: change back to signal_cb and change signal_cb to signal_cb_t) */
+static void signal_callback(struct ev_loop* loop, ev_signal* w, int revents);
+static struct ev_context ev_ctx = {0};
 
 void
 pgagroal_worker(int client_fd, char* address, char** argv)
@@ -90,6 +91,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
    pgagroal_prometheus_client_wait_add();
    /* Authentication */
    auth_status = pgagroal_authenticate(client_fd, address, &slot, &client_ssl, &server_ssl);
+   printf("dbg: auth_status=%d", auth_status);
    if (auth_status == AUTH_SUCCESS)
    {
       pgagroal_log_debug("pgagroal_worker: Slot %d (%d -> %d)", slot, client_fd, config->connections[slot].fd);
@@ -139,7 +141,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
          p = session_pipeline();
       }
 
-      ev_io_init((struct ev_io*)&client_io, p.client, client_fd, EV_READ);
+      pgagroal_ev_io_receive_init((struct ev_io*)&client_io.io, client_fd, p.client);
       client_io.client_fd = client_fd;
       client_io.server_fd = config->connections[slot].fd;
       client_io.slot = slot;
@@ -148,7 +150,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
 
       if (config->pipeline != PIPELINE_TRANSACTION)
       {
-         ev_io_init((struct ev_io*)&server_io, p.server, config->connections[slot].fd, EV_READ);
+         pgagroal_ev_io_receive_init((struct ev_io*)&server_io, config->connections[slot].fd, p.server);
          server_io.client_fd = client_fd;
          server_io.server_fd = config->connections[slot].fd;
          server_io.slot = slot;
@@ -156,25 +158,30 @@ pgagroal_worker(int client_fd, char* address, char** argv)
          server_io.server_ssl = server_ssl;
       }
 
-      loop = ev_loop_new(pgagroal_libev(config->libev));
+      loop = pgagroal_ev_init(ev_ctx);
+      if (!loop)
+      {
+        pgagroal_log_fatal("pgagroal_worker: Unable to create loop");
+        exit(1);
+      }
 
-      ev_signal_init((struct ev_signal*)&signal_watcher, signal_cb, SIGQUIT);
+      pgagroal_ev_signal_init((struct ev_signal*)&signal_watcher, signal_callback, SIGQUIT);
       signal_watcher.slot = slot;
-      ev_signal_start(loop, (struct ev_signal*)&signal_watcher);
+      pgagroal_ev_signal_start(loop, (struct ev_signal*)&signal_watcher);
 
       p.start(loop, &client_io);
       started = true;
 
-      ev_io_start(loop, (struct ev_io*)&client_io);
+      pgagroal_ev_io_start(loop, (struct ev_io*)&client_io);
       if (config->pipeline != PIPELINE_TRANSACTION)
       {
-         ev_io_start(loop, (struct ev_io*)&server_io);
+         pgagroal_ev_io_start(loop, (struct ev_io*)&server_io);
       }
 
-      while (running)
-      {
-         ev_loop(loop, 0);
-      }
+
+      
+      pgagroal_ev_loop(loop);
+
 
       if (config->pipeline == PIPELINE_TRANSACTION)
       {
@@ -278,17 +285,20 @@ pgagroal_worker(int client_fd, char* address, char** argv)
    pgagroal_pool_status();
    pgagroal_log_debug("After client: PID %d Slot %d (%d)", getpid(), slot, exit_code);
 
+   /* TODO: Evaluate the need to stop signals, the loop could just be destroyed.
+    *       No more cycles needed.
+    */
    if (loop)
    {
-      ev_io_stop(loop, (struct ev_io*)&client_io);
+      pgagroal_ev_io_stop(loop, (struct ev_io*)&client_io);
       if (config->pipeline != PIPELINE_TRANSACTION)
       {
-         ev_io_stop(loop, (struct ev_io*)&server_io);
+         pgagroal_ev_io_stop(loop, (struct ev_io*)&server_io);
       }
 
-      ev_signal_stop(loop, (struct ev_signal*)&signal_watcher);
+      pgagroal_ev_signal_stop(loop, (struct ev_signal*)&signal_watcher);
 
-      ev_loop_destroy(loop);
+      pgagroal_ev_loop_destroy(loop);
    }
 
    free(address);
@@ -302,7 +312,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
 }
 
 static void
-signal_cb(struct ev_loop* loop, ev_signal* w, int revents)
+signal_callback(struct ev_loop* loop, ev_signal* w, int revents)
 {
    struct signal_info* si;
 
@@ -311,6 +321,6 @@ signal_cb(struct ev_loop* loop, ev_signal* w, int revents)
    pgagroal_log_debug("pgagroal: signal %d for slot %d", si->signal.signum, si->slot);
 
    exit_code = WORKER_SHUTDOWN;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   
+   pgagroal_ev_loop_break(loop);
 }
