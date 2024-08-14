@@ -119,7 +119,14 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    wi = (struct worker_io*)watcher;
 
-   status = pgagroal_read_socket_message(wi->client_fd, &msg);
+   if (wi->server_ssl == NULL)
+   {
+      status = pgagroal_buffer_to_message(watcher->data, watcher->size, &msg);
+   }
+   else
+   {
+      status = pgagroal_read_ssl_message(wi->server_ssl, &msg);
+   }
    if (likely(status == MESSAGE_STATUS_OK))
    {
       if (likely(msg->kind != 'X'))
@@ -140,7 +147,7 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       else if (msg->kind == 'X')
       {
          saw_x = true;
-         running = 0;
+         pgagroal_ev_loop_break(loop);
       }
    }
    else if (status == MESSAGE_STATUS_ZERO)
@@ -152,7 +159,9 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       goto client_error;
    }
 
-   ev_break (loop, EVBREAK_ONE);
+   /* TODO(hc): this is not what you think it is: pgagroal_ev_loop_break (loop); */
+   pgagroal_ev_io_receive_init((struct ev_io*)watcher, wi->client_fd, performance_client);
+
    return;
 
 client_done:
@@ -171,8 +180,7 @@ client_done:
       exit_code = WORKER_SERVER_FAILURE;
    }
 
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_loop_break(loop);
    return;
 
 client_error:
@@ -184,8 +192,8 @@ client_error:
    errno = 0;
 
    exit_code = WORKER_CLIENT_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_error:
@@ -197,8 +205,8 @@ server_error:
    errno = 0;
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
 
@@ -215,12 +223,13 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    if (wi->server_ssl == NULL)
    {
-      status = pgagroal_read_socket_message(wi->server_fd, &msg);
+      status = pgagroal_buffer_to_message(watcher->data, watcher->size, &msg);
    }
    else
    {
       status = pgagroal_read_ssl_message(wi->server_ssl, &msg);
    }
+
    if (likely(status == MESSAGE_STATUS_OK))
    {
       status = pgagroal_write_socket_message(wi->client_fd, msg);
@@ -241,7 +250,7 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
          if (fatal)
          {
             exit_code = WORKER_SERVER_FATAL;
-            running = 0;
+            pgagroal_ev_loop_break(loop);
          }
       }
    }
@@ -254,7 +263,10 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
       goto server_error;
    }
 
-   ev_break(loop, EVBREAK_ONE);
+   /* pgagroal_ev_loop_break(loop); */
+   /* prepare again */
+   pgagroal_ev_io_receive_init((struct ev_io*)watcher, wi->server_fd, performance_server);
+
    return;
 
 client_error:
@@ -266,8 +278,8 @@ client_error:
    errno = 0;
 
    exit_code = WORKER_CLIENT_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_done:
@@ -277,8 +289,7 @@ server_done:
                       strerror(errno), wi->server_fd, status);
    errno = 0;
 
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+   pgagroal_ev_loop_break(loop);
    return;
 
 server_error:
@@ -290,7 +301,7 @@ server_error:
    errno = 0;
 
    exit_code = WORKER_SERVER_FAILURE;
-   running = 0;
-   ev_break(loop, EVBREAK_ALL);
+
+   pgagroal_ev_loop_break(loop);
    return;
 }
