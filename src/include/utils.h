@@ -34,6 +34,7 @@ extern "C" {
 #endif
 
 #include <pgagroal.h>
+#include <ev.h>
 #include <message.h>
 
 #include <stdlib.h>
@@ -43,7 +44,7 @@ extern "C" {
  */
 struct signal_info
 {
-   struct ev_signal signal; /**< The libev base type */
+   struct ev_signal signal; /**< The ev backend base type */
    int slot;                /**< The slot */
 };
 
@@ -276,28 +277,6 @@ unsigned int
 pgagroal_swap(unsigned int i);
 
 /**
- * Print the available libev engines
- */
-void
-pgagroal_libev_engines(void);
-
-/**
- * Get the constant for a libev engine
- * @param engine The name of the engine
- * @return The constant
- */
-unsigned int
-pgagroal_libev(char* engine);
-
-/**
- * Get the name for a libev engine
- * @param val The constant
- * @return The name
- */
-char*
-pgagroal_libev_engine(unsigned int val);
-
-/**
  * Get the home directory
  * @return The directory
  */
@@ -516,10 +495,10 @@ bool
 pgagroal_compare_string(const char* str1, const char* str2);
 
 /**
-* Escape a string
-* @param str The original string
-* @return The escaped string
-*/
+ * Escape a string
+ * @param str The original string
+ * @return The escaped string
+ */
 char*
 pgagroal_escape_string(char* str);
 

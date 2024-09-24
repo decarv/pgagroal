@@ -49,6 +49,7 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -428,6 +429,7 @@ pgagroal_socket_isvalid(int fd)
 int
 pgagroal_disconnect(int fd)
 {
+   pgagroal_log_trace("%s: fd=%d", __func__, fd);
    if (fd == -1)
    {
       return 1;
@@ -709,4 +711,22 @@ bind_host(const char* hostname, int port, int** fds, int* length, bool non_block
    *length = index;
 
    return 0;
+}
+
+int __attribute__((unused))
+set_non_blocking(int fd)
+{
+   int flags = fcntl(fd, F_GETFL, 0);
+   if (flags == -1)
+   {
+      return 1;
+   }
+   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+bool __attribute__((unused))
+is_non_blocking(int fd)
+{
+   int flags = fcntl(fd, F_GETFL, 0);
+   return (flags & O_NONBLOCK);
 }

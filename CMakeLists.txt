@@ -51,7 +51,7 @@ set(SUPPORTED_COMPILERS "GNU" "Clang" "AppleClang")
 
 # Check for a supported compiler
 if (NOT CMAKE_C_COMPILER_ID IN_LIST SUPPORTED_COMPILERS)
-   message(FATAL_ERROR "Unsupported compiler ${CMAKE_C_COMPILER_ID}. Supported compilers are: ${SUPPORTED_COMPILERS}")
+  message(FATAL_ERROR "Unsupported compiler ${CMAKE_C_COMPILER_ID}. Supported compilers are: ${SUPPORTED_COMPILERS}")
 endif ()
 
 CHECK_C_COMPILER_FLAG("-std=c17" COMPILER_SUPPORTS_C17)
@@ -87,11 +87,11 @@ else ()
   message(FATAL_ERROR "lz4 needed")
 endif()
 
-find_package(Libev 4.11)
-if (LIBEV_FOUND)
-  message(STATUS "libev found")
-else ()
-  message(FATAL_ERROR "libev needed")
+find_package(Liburing 2.5)
+if (LIBURING_FOUND)
+  message(STATUS "liburing found")
+else()
+  message(STATUS "liburing NOT found")
 endif()
 
 find_package(OpenSSL)

@@ -1590,7 +1590,7 @@ pgagroal_read_admins_configuration(void* shm, char* filename)
             goto error;
          }
 
-            if (pgagroal_decrypt(decoded, decoded_length, master_key, &password, ENCRYPTION_AES_256_CBC))
+         if (pgagroal_decrypt(decoded, decoded_length, master_key, &password, ENCRYPTION_AES_256_CBC))
          {
             status = PGAGROAL_CONFIGURATION_STATUS_CANNOT_DECRYPT;
             goto error;
@@ -2586,7 +2586,7 @@ transfer_configuration(struct main_configuration* config, struct main_configurat
    config->common.metrics_cache_max_age = reload->common.metrics_cache_max_age;
    if (restart_int("metrics_cache_max_size", config->common.metrics_cache_max_size, reload->common.metrics_cache_max_size))
    {
-      changed= true;
+      changed = true;
    }
    config->management = reload->management;
 
@@ -2676,15 +2676,19 @@ transfer_configuration(struct main_configuration* config, struct main_configurat
       changed = true;
    }
 
-   /* libev */
-   if (restart_string("libev", config->libev, reload->libev, true))
-   {
-      changed = true;
-   }
-   config->keep_alive = reload->keep_alive;
-   config->nodelay = reload->nodelay;
-   config->non_blocking = reload->non_blocking;
-   config->backlog = reload->backlog;
+   /* ev backend */
+   /*
+    * TODO: implementation of ev_backend for transfer configuration.
+    *       previous implementation for libev is commented here for
+    *       reference.
+    *
+    * restart_string("ev_backend", config->ev_backend, reload->ev_backend, true);
+    * config->buffer_size = reload->buffer_size;
+    * config->keep_alive = reload->keep_alive;
+    * config->nodelay = reload->nodelay;
+    * config->non_blocking = reload->non_blocking;
+    * config->backlog = reload->backlog;
+    */
    /* hugepage */
    if (restart_int("hugepage", config->common.hugepage, reload->common.hugepage))
    {
@@ -4670,7 +4674,7 @@ pgagroal_apply_main_configuration(struct main_configuration* config,
       }
       memcpy(config->unix_socket_dir, value, max);
    }
-   else if (key_in_section("libev", section, key, true, &unknown))
+   else if (key_in_section("ev_backend", section, key, true, &unknown))
    {
 
       max = strlen(value);
@@ -4678,7 +4682,7 @@ pgagroal_apply_main_configuration(struct main_configuration* config,
       {
          max = MISC_LENGTH - 1;
       }
-      memcpy(config->libev, value, max);
+      memcpy(config->ev_backend, value, max);
    }
    else if (key_in_section("keep_alive", section, key, true, &unknown))
    {
