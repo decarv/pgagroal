@@ -99,12 +99,6 @@ enum ev_return_codes {
    EV_ALLOC_ERROR,
 };
 
-enum ev_backend {
-   EV_BACKEND_IO_URING = (1 << 1),
-   EV_BACKEND_EPOLL    = (1 << 2),
-   EV_BACKEND_KQUEUE   = (1 << 3),
-};
-
 /**
  * @union sockaddr_u
  * @brief Socket address union for IPv4 and IPv6.
@@ -145,8 +139,6 @@ struct ev_context
    bool no_use_buffers;                 /**< Disable use of ring-mapped buffers. */
    int buf_size;                        /**< Size of the ring-mapped buffers. */
    int buf_count;                       /**< Number of ring-mapped buffers. */
-
-   enum ev_backend backend;             /**< Event loop backend in use. */
 
    /* filled in by the library */
    int br_mask;                         /**< Buffer ring mask value. */

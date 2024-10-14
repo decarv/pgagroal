@@ -108,7 +108,7 @@ static bool (*is_running)(struct ev_loop* ev);
 static void (*set_running)(struct ev_loop* ev);
 
 static int setup_ops(struct ev_loop*);
-static int setup_context(struct ev_context*, struct configuration*);
+static int setup_context(struct ev_context*);
 
 #if HAVE_URING
 static int __io_uring_init(struct ev_loop*);
@@ -226,50 +226,6 @@ __break_atomic(struct ev_loop* loop)
    atomic_store(&loop->atomic_running, false);
 }
 
-void
-pgagroal_ev_log_backends(void)
-{
-   int cnt = 0;
-   char log[MISC_LENGTH] = { 0 };
-#if HAVE_URING
-   strcat(log, "io_uring, ");
-   cnt++;
-#endif
-#if HAVE_EPOLL
-   strcat(log, "epoll, ");
-   cnt++;
-#endif
-#if HAVE_KQUEUE
-   strcat(log, "kqueue, ");
-   cnt++;
-#endif
-   if (cnt > 0)
-   {
-      log[strlen(log) - 2] = '\0';
-      pgagroal_log_debug("Available ev backends: %s", log);
-   }
-   else
-   {
-      pgagroal_log_debug("No ev backends available");
-   }
-}
-
-inline static int
-supported_engines(void)
-{
-   int supported = 0;
-#if HAVE_URING
-   supported |= EV_BACKEND_IO_URING;
-#endif
-#if HAVE_EPOLL
-   supported |= EV_BACKEND_EPOLL;
-#endif
-#if HAVE_KQUEUE
-   supported |= EV_BACKEND_KQUEUE;
-#endif
-   return supported;
-}
-
 inline static bool
 __io_uring_enabled(void)
 {
@@ -299,25 +255,6 @@ __io_uring_enabled(void)
    return res == '0';
 }
 
-static enum ev_backend
-backend_value(char* backend)
-{
-   int value = 0;
-   if (!strcmp(backend, "io_uring"))
-   {
-      value = EV_BACKEND_IO_URING;
-   }
-   else if (!strcmp(backend, "epoll"))
-   {
-      value = EV_BACKEND_EPOLL;
-   }
-   else if (!strcmp(backend, "kqueue"))
-   {
-      value = EV_BACKEND_KQUEUE;
-   }
-   return value;
-}
-
 struct ev_loop*
 pgagroal_ev_init(struct configuration* config)
 {
@@ -335,7 +272,7 @@ pgagroal_ev_init(struct configuration* config)
    }
    ev->config = config;
 
-   ret = setup_context(&ev->ctx, config);
+   ret = setup_context(&ev->ctx);
    if (ret)
    {
       pgagroal_log_error("ev_backend: context setup error\n");
@@ -384,9 +321,7 @@ pgagroal_ev_loop(struct ev_loop* loop)
 int
 pgagroal_ev_loop_fork(struct ev_loop** loop)
 {
-   loop_fork(loop);
-
-   return EV_OK;
+   return loop_fork(loop);
 }
 
 int
@@ -548,12 +483,13 @@ setup_ops(struct ev_loop* ev)
 {
    int ret = EV_OK;
    bool mtt = ev->ctx.multithreading;
+   struct configuration* config = (struct configuration*)shmem;
 
    is_running = mtt ? __is_running_atomic : __is_running;
    set_running = mtt ? __set_running_atomic: __set_running;
    loop_break = mtt ? __break_atomic: __break;
 
-   if (ev->ctx.backend == EV_BACKEND_IO_URING)
+   if (!strcmp(config->ev_backend, "io_uring"))
    {
 #if HAVE_URING
       loop_init = __io_uring_init;
@@ -569,7 +505,7 @@ setup_ops(struct ev_loop* ev)
       signal_stop = __io_uring_signal_stop;
 #endif
    }
-   else if (ev->ctx.backend == EV_BACKEND_EPOLL)
+   if (!strcmp(config->ev_backend, "epoll"))
    {
 #if HAVE_EPOLL
       loop_init = __epoll_init;
@@ -585,7 +521,7 @@ setup_ops(struct ev_loop* ev)
       signal_stop = __epoll_signal_stop;
 #endif
    }
-   else if (ev->ctx.backend == EV_BACKEND_KQUEUE)
+   else if (!strcmp(config->ev_backend, "kqueue"))
    {
 #if HAVE_KQUEUE
       loop_init = __kqueue_init;
@@ -609,57 +545,74 @@ setup_ops(struct ev_loop* ev)
  * TODO: move this to libpgagroal/configuration.c and allow configuration
  */
 static int
-setup_context(struct ev_context* ctx, struct configuration* config)
+setup_context(struct ev_context* ctx)
 {
-   ctx->multithreading = false;
+   struct configuration* config = &((struct main_configuration*)shmem)->common;
+   /* ordered from highest to lowest priority */
+   char* backends[] = {
+#if HAVE_URING
+      "io_uring",
+#endif
+#if HAVE_EPOLL
+      "epoll",
+#endif
+#if HAVE_KQUEUE
+      "kqueue",
+#endif
+   };
+   char log[] = (
+#if HAVE_URING
+      "io_uring, "
+#endif
+#if HAVE_EPOLL
+      "epoll, "
+#endif
+#if HAVE_KQUEUE
+      "kqueue, "
+#endif
+      );
 
-   pgagroal_ev_log_backends();
+   if (sizeof(backends) == 0)
+   {
+      pgagroal_log_fatal("no ev_backend supported");
+   }
 
-   if (!strlen(config->ev_backend))
+   log[strlen(log) - 2] = '\0';
+   pgagroal_log_debug("Available ev backends: %s", log);
+
+   if (!strnlen(config->ev_backend, MISC_LENGTH))
    {
       pgagroal_log_warn("ev_backend not set in configuration file");
-      pgagroal_log_warn("Selected default: '%s'", FALLBACK_BACKEND);
-      strcpy(config->ev_backend, FALLBACK_BACKEND);
+      pgagroal_log_warn("ev_backend automatically set to: 'auto'");
+      strcpy(config->ev_backend, "auto");
    }
 
-   ctx->backend = backend_value(config->ev_backend);
-   if (!ctx->backend)
+   if (!strcmp(config->ev_backend, "auto"))
    {
-      pgagroal_log_warn("ev_backend option '%s' not recognized", config->ev_backend);
-      pgagroal_log_warn("Selected default: '%s'", FALLBACK_BACKEND);
-      strcpy(config->ev_backend, FALLBACK_BACKEND);
-      ctx->backend = EV_BACKEND_EPOLL;
+      strcpy(config->ev_backend, backends[0]);
    }
 
-   if (!(ctx->backend & supported_engines()))
-   {
-      pgagroal_log_fatal("Backend '%s' not supported by your system", config->ev_backend);
-      exit(1);
-   }
+retry:
+   pgagroal_log_debug("Selected backend: '%s'", config->ev_backend);
 
-   if (ctx->backend == EV_BACKEND_IO_URING)
+   if (!strcmp(config->ev_backend, "io_uring"))
    {
       if (!__io_uring_enabled())
       {
          pgagroal_log_warn("io_uring supported but not enabled. Enable io_uring by setting /proc/sys/kernel/io_uring_disabled to '0'");
-         pgagroal_log_warn("Selected default: '%s'", FALLBACK_BACKEND);
-         strcpy(config->ev_backend, FALLBACK_BACKEND);
-         ctx->backend = EV_BACKEND_EPOLL;
+         pgagroal_log_warn("Fallback configured to 'epoll'");
+         strcpy(config->ev_backend, "epoll");
+         goto retry;
       }
       else if (config->tls)
       {
          pgagroal_log_warn("ev_backend '%s' not supported with tls on");
-         pgagroal_log_warn("Selected default: '%s'", FALLBACK_BACKEND);
-         strcpy(config->ev_backend, FALLBACK_BACKEND);
-         ctx->backend = EV_BACKEND_EPOLL;
+         pgagroal_log_warn("Selected default: 'epoll'");
+         strcpy(config->ev_backend, "epoll");
+         goto retry;
       }
-   }
-   pgagroal_log_debug("Event handling backend: '%s'", config->ev_backend);
 
-   if (ctx->backend == EV_BACKEND_IO_URING)
-   {
 #if HAVE_URING
-      /* asserts */
       if (ctx->defer_tw && ctx->sqpoll)
       {
          pgagroal_log_fatal("cannot use DEFER_TW and SQPOLL at the same time\n");
@@ -702,10 +655,14 @@ setup_context(struct ev_context* ctx, struct configuration* config)
       }
 #endif
    }
-   else if (ctx->backend == EV_BACKEND_EPOLL)
+   else if (!strcmp(config->ev_backend, "epoll"))
    {
+#if HAVE_EPOLL
       ctx->epoll_flags = 0;
+#endif
    }
+
+   ctx->multithreading = false;
 
    return EV_OK;
 }
