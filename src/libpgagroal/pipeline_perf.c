@@ -122,6 +122,7 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
    if (config->ev_backend == EV_BACKEND_IO_URING)
    {
       status = pgagroal_buffer_to_message(watcher->data, watcher->size, &msg);
+      pgagroal_ev_prepare_send(watcher->snd_fd, watcher->data, watcher->size);
    }
    else
    {
@@ -133,7 +134,14 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
       {
          if (wi->server_ssl == NULL)
          {
-            status = pgagroal_write_socket_message(wi->server_fd, msg);
+            if (config->ev_backend == EV_BACKEND_IO_URING)
+            {
+               status = pgagroal_check_send(watcher->size);
+            }
+            else
+            {
+               status = pgagroal_write_socket_message(wi->client_fd, msg);
+            }
          }
          else
          {
@@ -158,6 +166,13 @@ performance_client(struct ev_loop* loop, struct ev_io* watcher, int revents)
    {
       goto client_error;
    }
+
+   if (!saw_x && config->ev_backend == EV_BACKEND_IO_URING)
+   {
+
+   }
+
+   pgagroal_log_debug("%s: ret=ok", __func__);
 
    return;
 
@@ -218,6 +233,7 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
       if (config->ev_backend == EV_BACKEND_IO_URING)
       {
          status = pgagroal_buffer_to_message(watcher->data, watcher->size, &msg);
+         pgagroal_ev_prepare_send(watcher->snd_fd, watcher->data, watcher->size);
       }
       else
       {
@@ -231,7 +247,14 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    if (likely(status == MESSAGE_STATUS_OK))
    {
-      status = pgagroal_write_socket_message(wi->client_fd, msg);
+      if (config->ev_backend == EV_BACKEND_IO_URING)
+      {
+         status = pgagroal_check_send(watcher->size);
+      }
+      else
+      {
+         status = pgagroal_write_socket_message(wi->client_fd, msg);
+      }
       if (unlikely(status != MESSAGE_STATUS_OK))
       {
          goto client_error;
@@ -259,6 +282,7 @@ performance_server(struct ev_loop* loop, struct ev_io* watcher, int revents)
    }
    else
    {
+      /* TODO: server error is unreachable */
       goto server_error;
    }
 

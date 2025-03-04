@@ -714,13 +714,13 @@ accept_vault_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    memset(&address, 0, sizeof(address));
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->rcv_fd;
 
    if (client_fd == -1)
    {
       if (accept_fatal(errno) && pgagroal_ev_loop_is_running(loop))
       {
-         pgagroal_log_warn("accept_vault_cb: Restarting listening port due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("accept_vault_cb: Restarting listening port due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_vault_io();
 
@@ -744,7 +744,7 @@ accept_vault_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;
@@ -806,7 +806,7 @@ accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    config = (struct vault_configuration*)shmem;
 
    client_addr_length = sizeof(client_addr);
-   client_fd = accept(watcher->fd, (struct sockaddr*)&client_addr, &client_addr_length);
+   client_fd = accept(watcher->rcv_fd, (struct sockaddr*)&client_addr, &client_addr_length);
 
    pgagroal_prometheus_self_sockets_add();
 
@@ -814,7 +814,7 @@ accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    {
       if (accept_fatal(errno) && pgagroal_ev_loop_is_running(main_loop))
       {
-         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_metrics();
 
@@ -843,7 +843,7 @@ accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;

@@ -82,8 +82,8 @@ typedef enum ev_backend
 
 enum ev_type {
    EV_INVALID = 0,
-   EV_ACCEPT,
-   EV_RECEIVE,
+   EV_ACCEPT = 1,
+   EV_RCV_SND = 2,
    EV_SEND,
    EV_SIGNAL,
    EV_PERIODIC,
@@ -122,13 +122,17 @@ struct ev_loop;
 typedef struct ev_io
 {
    enum ev_type type;                                           /**< Event type. */
-   int fd;                                                      /**< File descriptor to watch. */
-   int client_fd;                                               /**< Client's file descriptor, if applicable. */
+   int client_fd;                                                      /**< File descriptor to watch */
+   int fd;                                                      /**< File descriptor to watch */
+   int rcv_fd;                                                      /**< File descriptor to watch. */
+   int snd_fd;                                               /**< Client's file descriptor, if applicable. */
    int size;                                                    /**< Size of the data buffer. */
    void* data;                                                  /**< Pointer to received data. */
    bool ssl;                                                    /**< Indicates if SSL/TLS is used on this connection. */
    struct ev_io* next;                                          /**< Pointer to the next watcher in the linked list. */
+   int bgid;                                                    /**< TODO: will be used */
    void (*cb)(struct ev_loop*, struct ev_io* watcher, int err); /**< Event callback. */
+   void (*handler)(struct ev_io* watcher);                      /**< TODO: might be used */
 } ev_io;
 
 /**
@@ -143,6 +147,7 @@ typedef struct ev_signal
    int signum;                                                      /**< Signal number to watch for. */
    struct ev_signal* next;                                          /**< Pointer to the next signal watcher. */
    void (*cb)(struct ev_loop*, struct ev_signal* watcher, int err); /**< Event callback. */
+   void (*handler)(struct ev_loop*, struct ev_io* watcher);         /**< TODO: might be used */
 } ev_signal;
 
 /**
@@ -162,6 +167,7 @@ typedef struct ev_periodic
 #endif /* HAVE_LINUX */
    struct ev_periodic* next;                                           /**< Pointer to the next periodic watcher. */
    void (*cb)(struct ev_loop*, struct ev_periodic* watcher, int err);  /**< Event callback. */
+   void (*handler)(struct ev_loop*, struct ev_io* watcher);            /**< TODO: might be used */
 } ev_periodic;
 
 /**
@@ -325,7 +331,7 @@ pgagroal_ev_io_accept_init(struct ev_io* w, int fd, io_cb cb);
  * @return Return code
  */
 int
-pgagroal_ev_io_receive_init(struct ev_io* w, int fd, io_cb cb);
+pgagroal_ev_rcv_snd_init(struct ev_io* w, int snd_fd, int rcv_fd, io_cb cb);
 
 /**
  * Initialize the watcher for sending IO operations
@@ -412,5 +418,25 @@ pgagroal_ev_signal_start(struct ev_loop* loop, struct ev_signal* w);
  */
 int
 pgagroal_ev_signal_stop(struct ev_loop* loop, struct ev_signal* w);
+
+/**
+ * TODO
+ * @param
+ * @param
+ * @param
+ * @return
+ */
+int
+pgagroal_check_send(int size);
+
+/**
+ * TODO
+ * @param
+ * @param
+ * @param
+ * @return
+ */
+void
+pgagroal_ev_prepare_send(int fd, void* data, size_t size);
 
 #endif /* EV_H */

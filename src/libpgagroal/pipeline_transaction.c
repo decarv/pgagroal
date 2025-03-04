@@ -625,10 +625,10 @@ accept_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       return;
    }
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->snd_fd;
    if (client_fd == -1)
    {
-      pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+      pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       errno = 0;
       return;
    }

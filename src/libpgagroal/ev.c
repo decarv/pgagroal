@@ -30,8 +30,9 @@
 #include <ev.h>
 #include <logging.h>
 #include <pgagroal.h>
-#include <shmem.h>
+#include <message.h>
 #include <network.h>
+#include <shmem.h>
 
 /* system */
 #include <errno.h>
@@ -88,9 +89,7 @@ static int (*loop_init)(struct ev_loop*);
 static int (*loop_start)(struct ev_loop*);
 static int (*loop_fork)(struct ev_loop*);
 static int (*loop_destroy)(struct ev_loop*);
-static void (*loop_break)(struct ev_loop*);
 
-static int io_init(struct ev_io*, int, int, io_cb, void*, int, int);
 static int (*io_start)(struct ev_loop*, struct ev_io*);
 static int (*io_stop)(struct ev_loop*, struct ev_io*);
 
@@ -101,25 +100,22 @@ static int (*periodic_init)(struct ev_periodic*, int);
 static int (*periodic_start)(struct ev_loop*, struct ev_periodic*);
 static int (*periodic_stop)(struct ev_loop*, struct ev_periodic*);
 
-static bool (*is_running)(struct ev_loop*);
-static void (*set_running)(struct ev_loop*);
-
 #if HAVE_LINUX
-static int __io_uring_init(struct ev_loop*);
-static int __io_uring_destroy(struct ev_loop*);
+static int ev_io_uring_init(struct ev_loop*);
+static int ev_io_uring_destroy(struct ev_loop*);
 static int __io_uring_handler(struct ev_loop*, struct io_uring_cqe*);
-static int __io_uring_loop(struct ev_loop*);
-static int __io_uring_fork(struct ev_loop*);
-static int __io_uring_io_start(struct ev_loop*, struct ev_io*);
-static int __io_uring_io_stop(struct ev_loop*, struct ev_io*);
+static int ev_io_uring_loop(struct ev_loop*);
+static int ev_io_uring_fork(struct ev_loop*);
+static int ev_io_uring_io_start(struct ev_loop*, struct ev_io*);
+static int ev_io_uring_io_stop(struct ev_loop*, struct ev_io*);
 static int __io_uring_setup_buffers(struct ev_loop*);
 static int __io_uring_setup_more_buffers(struct ev_loop* loop);
-static int __io_uring_periodic_init(struct ev_periodic*, int);
-static int __io_uring_periodic_start(struct ev_loop*, struct ev_periodic*);
-static int __io_uring_periodic_stop(struct ev_loop*, struct ev_periodic*);
+static int ev_io_uring_periodic_init(struct ev_periodic*, int);
+static int ev_io_uring_periodic_start(struct ev_loop*, struct ev_periodic*);
+static int ev_io_uring_periodic_stop(struct ev_loop*, struct ev_periodic*);
 static void __io_uring_signal_handler(int signum, siginfo_t* info, void* p);
-static int __io_uring_signal_start(struct ev_loop*, struct ev_signal*);
-static int __io_uring_signal_stop(struct ev_loop*, struct ev_signal*);
+static int ev_io_uring_signal_start(struct ev_loop*, struct ev_signal*);
+static int ev_io_uring_signal_stop(struct ev_loop*, struct ev_signal*);
 static int __io_uring_receive_handler(struct ev_loop*, struct ev_io*, struct io_uring_cqe*, void**, bool);
 static int __io_uring_send_handler(struct ev_loop*, struct ev_io*, struct io_uring_cqe*);
 static int __io_uring_accept_handler(struct ev_loop*, struct ev_io*, struct io_uring_cqe*);
@@ -166,10 +162,9 @@ static int __kqueue_signal_start(struct ev_loop*, struct ev_signal*);
 
 /* context globals */
 
-static struct ev_loop * loop;
-static struct ev_signal* watchers[_NSIG] = {0};
-
-static bool multithreading = false;    /* Enable multithreading for a loop */
+static struct ev_loop* loop;
+static struct ev_signal* signal_watchers[_NSIG] = {0};
+// static struct ev_io* io_watchers[_NSIG] = {0};
 
 #ifdef HAVE_LINUX
 static struct io_uring_params params; /* io_uring argument params */
@@ -186,63 +181,25 @@ static int epoll_flags;               /* Flags for epoll instance creation */
 static int kqueue_flags;              /* Flags for kqueue instance creation */
 #endif /* HAVE_LINUX */
 
-static inline bool
-_is_running(struct ev_loop* loop)
-{
-   return loop->running;
-}
-
-static inline bool
-_is_running_atomic(struct ev_loop* loop)
-{
-   return atomic_load(&loop->atomic_running);
-}
-
-static inline void
-_set_running(struct ev_loop* loop)
-{
-   loop->running = true;
-}
-static inline void
-_set_running_atomic(struct ev_loop* loop)
-{
-   atomic_store(&loop->atomic_running, true);
-}
-
-static inline void
-_break(struct ev_loop* loop)
-{
-   loop->running = false;
-}
-static inline void
-_break_atomic(struct ev_loop* loop)
-{
-   atomic_store(&loop->atomic_running, false);
-}
-
 static int
 setup_ops(struct ev_loop* loop)
 {
    struct main_configuration* config = (struct main_configuration*)shmem;
 
-   is_running = multithreading ? _is_running_atomic : _is_running;
-   set_running = multithreading ? _set_running_atomic: _set_running;
-   loop_break = multithreading ? _break_atomic: _break;
-
 #if HAVE_LINUX
    if (config->ev_backend == EV_BACKEND_IO_URING)
    {
-      loop_init = __io_uring_init;
-      loop_fork = __io_uring_fork;
-      loop_destroy = __io_uring_destroy;
-      loop_start = __io_uring_loop;
-      io_start = __io_uring_io_start;
-      io_stop = __io_uring_io_stop;
-      periodic_init = __io_uring_periodic_init;
-      periodic_start = __io_uring_periodic_start;
-      periodic_stop = __io_uring_periodic_stop;
-      signal_start = __io_uring_signal_start;
-      signal_stop = __io_uring_signal_stop;
+      loop_init       =  ev_io_uring_init;
+      loop_fork       =  ev_io_uring_fork;
+      loop_destroy    =  ev_io_uring_destroy;
+      loop_start      =  ev_io_uring_loop;
+      io_start        =  ev_io_uring_io_start;
+      io_stop         =  ev_io_uring_io_stop;
+      periodic_init   =  ev_io_uring_periodic_init;
+      periodic_start  =  ev_io_uring_periodic_start;
+      periodic_stop   =  ev_io_uring_periodic_stop;
+      signal_start    =  ev_io_uring_signal_start;
+      signal_stop     =  ev_io_uring_signal_stop;
       return EV_OK;
    }
    else if (config->ev_backend == EV_BACKEND_EPOLL)
@@ -336,20 +293,25 @@ pgagroal_ev_init(void)
       entries = 32;
       params.cq_entries = 64;
 
-      use_huge = false;
-      sq_poll = false;
-      fast_poll = false;
+      params.flags = 0;
+      params.flags |= IORING_SETUP_CQSIZE; /* needed if I'm using cq_entries above */
+      // params.flags |= IORING_SETUP_CLAMP; /* this likely reduces latency */
+      params.flags |= IORING_SETUP_DEFER_TASKRUN | IORING_SETUP_SINGLE_ISSUER; /* this likely reduces latency */
 
-      params.flags |= IORING_SETUP_SINGLE_ISSUER;
-      params.flags |= IORING_SETUP_CLAMP;
-      params.flags |= IORING_SETUP_CQSIZE;
+      /* params.flags |= IORING_SETUP_IOPOLL; */
+      /* params.flags |= IORING_FEAT_SINGLE_MMAP; */
+
+      /* NOTICE: SQPOLL might create a polling thread for each io_uring loop, which
+       * might be overkill and hurt performance */
+      sq_poll = false;   /* puts too much pressure on the system or im using it wrong */
+      use_huge = false;  /* TODO: not implemented */
+      fast_poll = false; /* TODO: haven't even been able to init the loop with this yet */
+
       if (use_huge)
       {
          pgagroal_log_fatal("use_huge not implemented");
          goto error;
       }
-      /* NOTICE: SQPOLL might create a polling thread for each io_uring loop, which 
-       * might be overkill and hurt performance */
       if (sq_poll)
       {
          params.flags |= IORING_SETUP_SQPOLL;
@@ -434,7 +396,7 @@ pgagroal_ev_loop_destroy(struct ev_loop* loop)
 void
 pgagroal_ev_loop_break(struct ev_loop* loop)
 {
-   loop_break(loop);
+   loop->running = false;
 }
 
 bool
@@ -449,22 +411,76 @@ pgagroal_ev_atomic_loop_is_running(struct ev_loop* loop)
    return atomic_load(&loop->atomic_running);
 }
 
-int
-pgagroal_ev_io_accept_init(struct ev_io* w, int fd, io_cb cb)
+void
+pgagroal_ev_prepare_send(int fd, void* data, size_t size)
 {
-   return io_init(w, fd, EV_ACCEPT, cb, NULL, 0, -1);
+   struct io_uring_sqe* sqe;
+   int bgid = 0;
+
+   /* advance the seen cqe obtained in the loop */
+   // io_uring_cq_advance(&loop->ring, 1);
+
+   sqe = io_uring_get_sqe(&loop->ring);
+   sqe->flags |= IOSQE_BUFFER_SELECT;
+   sqe->buf_group = 0;
+  struct io_buf_ring* cbr = &loop->br;
+
+
+   io_uring_sqe_set_data(sqe, 0);
+   io_uring_prep_send(sqe, fd, NULL, 0, MSG_WAITALL | MSG_NOSIGNAL); /* TODO: flags */
+
+   /* TODO: why do i have to re-add the buffer here? */
+   io_uring_buf_ring_add(cbr->br, data, size, bgid, br_mask, 1);
+   io_uring_buf_ring_advance(cbr->br, 1);
+   sqe->flags |= IOSQE_BUFFER_SELECT;
+   sqe->buf_group = bgid;
+
+   io_uring_submit(&loop->ring);
 }
 
 int
-pgagroal_ev_io_send_init(struct ev_io* w, int fd, io_cb cb, void* buf, int buf_len)
+pgagroal_check_send(int size)
 {
-   return io_init(w, fd, EV_SEND, cb, buf, buf_len, -1);
+   struct io_uring_cqe* cqe = NULL;
+   io_uring_wait_cqe(&loop->ring, &cqe);
+   int res = cqe->res;
+   /* advance the send cqe */
+   // io_uring_cqe_seen(&loop->ring, cqe);
+   if (res < size)
+   {
+      return MESSAGE_STATUS_ERROR;
+   }
+   return MESSAGE_STATUS_OK;
 }
 
 int
-pgagroal_ev_io_receive_init(struct ev_io* w, int fd, io_cb cb)
+pgagroal_ev_io_accept_init(struct ev_io* w, int accept_fd, io_cb cb)
 {
-   return io_init(w, fd, EV_RECEIVE, cb, NULL, 0, -1);
+   w->type = EV_ACCEPT;
+   w->fd = accept_fd;
+   w->client_fd = -1;
+   w->snd_fd = accept_fd;
+   w->rcv_fd = -1;
+   w->cb = cb;
+   w->handler = NULL;
+   w->data = NULL;
+   w->size = 0;
+
+   return EV_OK;
+}
+
+int
+pgagroal_ev_rcv_snd_init(struct ev_io* w, int rcv_fd, int snd_fd, io_cb cb)
+{
+   w->type = EV_RCV_SND;
+   w->rcv_fd = rcv_fd;
+   w->snd_fd = snd_fd;
+   w->cb = cb;
+   w->handler = NULL;
+   w->data = NULL;
+   w->size = 0;
+
+   return EV_OK;
 }
 
 int
@@ -521,7 +537,8 @@ pgagroal_ev_signal_stop(struct ev_loop* loop, struct ev_signal* target)
 
    if (!target)
    {
-      pgagroal_log_fatal("Target is NULL");
+      /* reaching here is a bug, do not recover */
+      pgagroal_log_fatal("BUG: target is NULL");
       exit(1);
    }
 
@@ -537,8 +554,8 @@ pgagroal_ev_signal_stop(struct ev_loop* loop, struct ev_signal* target)
 #endif
    if (sigprocmask(SIG_UNBLOCK, &tmp, NULL) == -1)
    {
-      pgagroal_log_error("sigprocmask");
-      exit(1);
+      pgagroal_log_fatal("sigprocmask error: %s");
+      return EV_FATAL;
    }
 #if !HAVE_LINUX
 }
@@ -588,45 +605,14 @@ pgagroal_ev_periodic_stop(struct ev_loop* loop, struct ev_periodic* target)
    return ret;
 }
 
-static int
-io_init(struct ev_io* w, int fd, int event, io_cb cb, void* data, int size, int rsvd)
-{
-   w->type = event;
-   w->fd = fd;
-   w->cb = cb;
-   w->data = data;
-   w->size = size;
-   return EV_OK;
-}
-
 #if HAVE_LINUX
-static inline struct io_uring_sqe*
-__io_uring_get_sqe(struct ev_loop* loop)
-{
-   struct io_uring* ring = &loop->ring;
-   struct io_uring_sqe* sqe;
-   /* this loop is necessary if SQPOLL is being used */
-   do
-   {
-      sqe = io_uring_get_sqe(ring);
-      if (sqe)
-      {
-         return sqe;
-      }
-      else
-      {
-         io_uring_sqring_wait(ring);
-      }
-   }
-   while (1);
-}
 
 static inline void __attribute__((unused))
 __io_uring_rearm_receive(struct ev_loop* loop, struct ev_io* w)
 {
-   struct io_uring_sqe* sqe = __io_uring_get_sqe(loop);
+   struct io_uring_sqe* sqe = io_uring_get_sqe(&loop->ring);
    io_uring_sqe_set_data(sqe, w);
-   io_uring_prep_recv_multishot(sqe, w->fd, NULL, 0, 0);
+   io_uring_prep_recv_multishot(sqe, w->rcv_fd, NULL, 0, 0);
    sqe->flags |= IOSQE_BUFFER_SELECT;
    sqe->buf_group = 0;
 }
@@ -652,7 +638,7 @@ __io_uring_replenish_buffers(struct ev_loop* loop, struct io_buf_ring* br, int b
 }
 
 static int
-__io_uring_init(struct ev_loop* loop)
+ev_io_uring_init(struct ev_loop* loop)
 {
    int ret;
    ret = io_uring_queue_init_params(entries, &loop->ring, &params);
@@ -676,7 +662,7 @@ __io_uring_init(struct ev_loop* loop)
 }
 
 static int
-__io_uring_destroy(struct ev_loop* loop)
+ev_io_uring_destroy(struct ev_loop* loop)
 {
    const int bgid = 0; /* const for now */
    struct io_buf_ring* br = &loop->br;
@@ -691,22 +677,22 @@ __io_uring_destroy(struct ev_loop* loop)
 }
 
 static int
-__io_uring_io_start(struct ev_loop* loop, struct ev_io* w)
+ev_io_uring_io_start(struct ev_loop* loop, struct ev_io* w)
 {
-   struct io_uring_sqe* sqe = __io_uring_get_sqe(loop);
+   struct io_uring_sqe* sqe = io_uring_get_sqe(&loop->ring);
    io_uring_sqe_set_data(sqe, w);
    switch (w->type)
    {
       case EV_ACCEPT:
-         io_uring_prep_multishot_accept(sqe, w->fd, NULL, NULL, 0);
+         io_uring_prep_multishot_accept(sqe, w->snd_fd, NULL, NULL, 0);
          break;
-      case EV_RECEIVE:
-         io_uring_prep_recv(sqe, w->fd, loop->br.buf, buf_size, 0);
+      case EV_RCV_SND:
+         io_uring_prep_recv(sqe, w->rcv_fd, loop->br.buf, buf_size, 0);
+         sqe->buf_group = 0; // w->buf_group;
          sqe->flags |= IOSQE_BUFFER_SELECT;
-         sqe->buf_group = 0;
          break;
       case EV_SEND:
-         io_uring_prep_send(sqe, w->fd, w->data, w->size, MSG_WAITALL | MSG_NOSIGNAL); /* TODO: flags */
+         io_uring_prep_send(sqe, w->snd_fd, w->data, w->size, 0); /* TODO: flags */
          break;
       default:
          pgagroal_log_fatal("unknown event type: %d", w->type);
@@ -716,7 +702,7 @@ __io_uring_io_start(struct ev_loop* loop, struct ev_io* w)
 }
 
 static int
-__io_uring_io_stop(struct ev_loop* loop, struct ev_io* target)
+ev_io_uring_io_stop(struct ev_loop* loop, struct ev_io* target)
 {
    int ret = EV_OK;
    struct io_uring_sqe* sqe;
@@ -730,10 +716,7 @@ __io_uring_io_stop(struct ev_loop* loop, struct ev_io* target)
       {
          break;
       }
-      if (!sq_poll)
-      {
-         io_uring_submit(&loop->ring);
-      }
+      io_uring_submit(&loop->ring);
    }
    while (1);
    io_uring_prep_cancel64(sqe, (uint64_t)target, 0); /* TODO: flags? */
@@ -741,7 +724,7 @@ __io_uring_io_stop(struct ev_loop* loop, struct ev_io* target)
 }
 
 static int
-__io_uring_signal_start(struct ev_loop* loop, struct ev_signal* w)
+ev_io_uring_signal_start(struct ev_loop* loop, struct ev_signal* w)
 {
    struct sigaction act;
    sigemptyset(&act.sa_mask);
@@ -752,18 +735,18 @@ __io_uring_signal_start(struct ev_loop* loop, struct ev_signal* w)
       pgagroal_log_fatal("sigaction failed for signum %d", w->signum);
       return EV_ERROR;
    }
-   watchers[w->signum] = w;
+   signal_watchers[w->signum] = w;
    return EV_OK;
 }
 
 static int
-__io_uring_signal_stop(struct ev_loop* loop, struct ev_signal* w)
+ev_io_uring_signal_stop(struct ev_loop* loop, struct ev_signal* w)
 {
    return EV_OK;
 }
 
 static int
-__io_uring_periodic_init(struct ev_periodic* w, int msec)
+ev_io_uring_periodic_init(struct ev_periodic* w, int msec)
 {
    w->ts = (struct __kernel_timespec) {
       .tv_sec = msec / 1000,
@@ -773,7 +756,7 @@ __io_uring_periodic_init(struct ev_periodic* w, int msec)
 }
 
 static int
-__io_uring_periodic_start(struct ev_loop* loop, struct ev_periodic* w)
+ev_io_uring_periodic_start(struct ev_loop* loop, struct ev_periodic* w)
 {
    struct io_uring_sqe* sqe = io_uring_get_sqe(&loop->ring);
    io_uring_sqe_set_data(sqe, w);
@@ -782,7 +765,7 @@ __io_uring_periodic_start(struct ev_loop* loop, struct ev_periodic* w)
 }
 
 static int
-__io_uring_periodic_stop(struct ev_loop* loop, struct ev_periodic* w)
+ev_io_uring_periodic_stop(struct ev_loop* loop, struct ev_periodic* w)
 {
    struct io_uring_sqe* sqe;
    sqe = io_uring_get_sqe(&loop->ring);
@@ -795,7 +778,7 @@ __io_uring_periodic_stop(struct ev_loop* loop, struct ev_periodic* w)
  * (C) 2024 Jens Axboe <axboe@kernel.dk>
  */
 static int
-__io_uring_loop(struct ev_loop* loop)
+ev_io_uring_loop(struct ev_loop* loop)
 {
    int ret;
    int events;
@@ -805,10 +788,10 @@ __io_uring_loop(struct ev_loop* loop)
    struct __kernel_timespec* ts = NULL;
    struct __kernel_timespec idle_ts = {
       .tv_sec = 0,
-      .tv_nsec = 10000LL, /* seems best with 10000LL ms for most loads */
+      .tv_nsec = 100000LL, /* seems best with 10000LL ms for most loads */
    };
 
-   set_running(loop);
+   loop->running = true;
    while (loop->running)
    {
       ts = &idle_ts;
@@ -832,9 +815,10 @@ __io_uring_loop(struct ev_loop* loop)
          ret = __io_uring_handler(loop, cqe);
          events++;
       }
-      if (events)
+
+      if (events) 
       {
-         io_uring_cq_advance(&loop->ring, events);
+        io_uring_cq_advance(&loop->ring, events);
       }
 
    }
@@ -842,7 +826,7 @@ __io_uring_loop(struct ev_loop* loop)
 }
 
 static int
-__io_uring_fork(struct ev_loop* loop)
+ev_io_uring_fork(struct ev_loop* loop)
 {
    return EV_OK;
 }
@@ -851,31 +835,30 @@ static int
 __io_uring_handler(struct ev_loop* loop, struct io_uring_cqe* cqe)
 {
    int ret = EV_OK;
-   ev_watcher w;
-   w.io = (ev_io*)io_uring_cqe_get_data(cqe);
+   ev_io* io = (ev_io*)io_uring_cqe_get_data(cqe);
 
    void* buf;
 
    /*
     * Cancelled requests will trigger the handler, but have NULL data.
     */
-   if (!w.io)
+   if (!io)
    {
       return EV_OK;
    }
 
    /* io handler */
-   switch (w.io->type)
+   switch (io->type)
    {
       case EV_PERIODIC:
-         return __io_uring_periodic_handler(loop, w.periodic);
+         return __io_uring_periodic_handler(loop, (ev_periodic*)io);
       case EV_ACCEPT:
-         return __io_uring_accept_handler(loop, w.io, cqe);
+         return __io_uring_accept_handler(loop, io, cqe);
       case EV_SEND:
-         return __io_uring_send_handler(loop, w.io, cqe);
-      case EV_RECEIVE:
+         return __io_uring_send_handler(loop, (ev_io*)io, cqe);
+      case EV_RCV_SND:
 retry:
-         ret = __io_uring_receive_handler(loop, w.io, cqe, &buf, false);
+         ret = __io_uring_receive_handler(loop, (ev_io*)io, cqe, &buf, false);
          switch (ret)
          {
             case EV_CONNECTION_CLOSED: /* connection closed */
@@ -892,8 +875,9 @@ retry:
          }
          break;
       default:
-         pgagroal_log_fatal("unknown event type: %d", w.io->type);
-         exit(1);
+         /* reaching here is a bug, do not recover */
+         pgagroal_log_fatal("BUG: Unknown event type: %d", (ev_io*)io->type);
+         exit(1); 
    }
    return ret;
 }
@@ -908,7 +892,7 @@ __io_uring_periodic_handler(struct ev_loop* loop, struct ev_periodic* w)
 static int
 __io_uring_accept_handler(struct ev_loop* loop, struct ev_io* w, struct io_uring_cqe* cqe)
 {
-   w->client_fd = cqe->res;
+   w->rcv_fd = cqe->res;
    w->cb(loop, w, EV_OK);
    return EV_OK;
 }
@@ -923,9 +907,9 @@ __io_uring_send_handler(struct ev_loop* loop, struct ev_io* w, struct io_uring_c
    io_uring_buf_ring_add(br->br, (void*) br->br->bufs[bid].addr, buf_size, 0, br_mask, bid);
    io_uring_buf_ring_advance(br->br, cnt);
 
-   struct io_uring_sqe* sqe = __io_uring_get_sqe(loop);
+   struct io_uring_sqe* sqe = io_uring_get_sqe(&loop->ring);
    io_uring_sqe_set_data(sqe, w);
-   io_uring_prep_recv(sqe, w->fd, NULL, 0, 0);
+   io_uring_prep_recv(sqe, w->rcv_fd, NULL, 0, 0);
    sqe->flags |= IOSQE_BUFFER_SELECT | MSG_WAITALL;
    return EV_OK;
 }
@@ -933,19 +917,20 @@ __io_uring_send_handler(struct ev_loop* loop, struct ev_io* w, struct io_uring_c
 /* Do not use logging here, as they are not async safe and can
  * lead to UAF due to libc freeing tz internally. */
 static void
-__io_uring_signal_handler(int signum, siginfo_t *si, void *p)
+__io_uring_signal_handler(int signum, siginfo_t* si, void* p)
 {
    struct ev_signal* w;
-   if (!watchers[signum])
+   if (!signal_watchers[signum])
    {
       return;
    }
-   w = watchers[signum];
+   w = signal_watchers[signum];
    w->cb(loop, w, 0);
 }
 
 static int
-__io_uring_receive_handler(struct ev_loop* loop, struct ev_io* w, struct io_uring_cqe* cqe, void** _unused, bool __unused)
+__io_uring_receive_handler(struct ev_loop* loop, struct ev_io* w, 
+                struct io_uring_cqe* cqe, void** _unused, bool __unused)
 {
    int bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
    struct io_buf_ring* br = &loop->br;
@@ -954,14 +939,13 @@ __io_uring_receive_handler(struct ev_loop* loop, struct ev_io* w, struct io_urin
 
    if (cqe->res == -ENOBUFS)
    {
-      pgagroal_log_fatal("ev: Not enough buffers");
+      pgagroal_log_error("Not enough buffers");
       return EV_REPLENISH_BUFFERS;
-      /* TODO return EV_REPLENISH_BUFFERS; */
    }
 
    if (!(cqe->flags & IORING_CQE_F_BUFFER) && !(cqe->res))
    {
-      pgagroal_log_debug("ev: Connection closed");
+      pgagroal_log_debug("Connection closed");
       w->data = NULL;
       w->size = 0;
       w->cb(loop, w, EV_OK);
@@ -975,7 +959,7 @@ __io_uring_receive_handler(struct ev_loop* loop, struct ev_io* w, struct io_urin
    io_uring_buf_ring_add(br->br, w->data, buf_size, bid, br_mask, bid);
    io_uring_buf_ring_advance(br->br, cnt);
 
-   __io_uring_io_start(loop, w);
+   ev_io_uring_io_start(loop, w);
 
    return EV_OK;
 }
@@ -1004,7 +988,6 @@ __io_uring_receive_multishot_handler(struct ev_loop* loop, struct ev_io* w, stru
       /* do not rearm receive. In fact, disarm anything so pgagroal can deal with
        * read / write from sockets
        */
-      pgagroal_log_debug("ev: Transaction likely cancelled");
       w->data = NULL;
       w->size = 0;
       w->cb(loop, w, EV_ERROR);
@@ -1075,14 +1058,14 @@ __io_uring_setup_more_buffers(struct ev_loop* loop)
    if (posix_memalign(&br->buf, ALIGNMENT, buf_count * buf_size))
    {
       pgagroal_log_fatal("posix_memalign");
-      exit(1);
+      return EV_FATAL;
    }
 
    br->br = io_uring_setup_buf_ring(&loop->ring, buf_count, br_bgid, br_flags, &ret);
    if (!br->br)
    {
       pgagroal_log_fatal("buffer ring register failed %d", strerror(-ret));
-      exit(1);
+      return EV_FATAL;
    }
 
    ptr = br->buf;
@@ -1122,17 +1105,17 @@ __epoll_loop(struct ev_loop* loop)
    };
    if (ev.data.fd == -1)
    {
-      pgagroal_log_fatal("signalfd");
-      exit(1);
+      pgagroal_log_fatal("signalfd error: %s", strerror(errno));
+      return EV_FATAL;
    }
    if (epoll_ctl(loop->epollfd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1)
    {
-      pgagroal_log_fatal("ev: epoll_ctl (%s)", strerror(errno));
-      exit(1);
+      pgagroal_log_fatal("epoll_ctl error: %s", strerror(errno));
+      return EV_FATAL;
    }
 
-   set_running(loop);
-   while (is_running(loop))
+   loop->running = true;
+   while (loop->running)
    {
 #if HAVE_EPOLL_PWAIT2
       nfds = epoll_pwait2(loop->epollfd, events, MAX_EVENTS, &timeout_ts, &loop->sigset);
@@ -1161,8 +1144,8 @@ __epoll_init(struct ev_loop* loop)
    loop->epollfd = epoll_create1(epoll_flags);
    if (loop->epollfd == -1)
    {
-      pgagroal_log_fatal("epoll_init");
-      exit(1);
+      pgagroal_log_fatal("epoll_init error: %s", strerror(errno));
+      return EV_FATAL;
    }
    return EV_OK;
 }
@@ -1170,7 +1153,6 @@ __epoll_init(struct ev_loop* loop)
 static int
 __epoll_fork(struct ev_loop* loop)
 {
-
    close(loop->epollfd);
    return EV_OK;
 }
@@ -1214,7 +1196,7 @@ __epoll_signal_handler(struct ev_loop* loop)
    signo = sigwaitinfo(&loop->sigset, &siginfo);
    if (signo == -1)
    {
-      pgagroal_log_error("sigwaitinfo");
+      pgagroal_log_error("sigwaitinfo error: %s", strerror(errno));
       return EV_ERROR;
    }
 
@@ -1227,8 +1209,9 @@ __epoll_signal_handler(struct ev_loop* loop)
       }
    }
 
-   pgagroal_log_error("No handler found for signal %d", signo);
-   return EV_ERROR;
+   /* reaching here is a bug, do not recover */
+   pgagroal_log_fatal("BUG: No handler found for signal %d", signo);
+   exit(1);
 }
 
 static int
@@ -1316,8 +1299,8 @@ __epoll_io_start(struct ev_loop* loop, struct ev_io* w)
       case EV_ACCEPT:
          event.events = EPOLLIN;
          break;
-      case EV_RECEIVE:
-         pgagroal_socket_nonblocking(w->fd, true);
+      case EV_RCV_SND:
+         pgagroal_socket_nonblocking(w->snd_fd, true);
          event.events = EPOLLIN; /* TODO: | EPOLLET; */
          break;
       case EV_SEND:
@@ -1328,10 +1311,10 @@ __epoll_io_start(struct ev_loop* loop, struct ev_io* w)
          exit(1);
    }
 
-   if (epoll_ctl(loop->epollfd, EPOLL_CTL_ADD, w->fd, &event) == -1)
+   if (epoll_ctl(loop->epollfd, EPOLL_CTL_ADD, w->snd_fd, &event) == -1)
    {
-      pgagroal_log_fatal("ev: epoll_ctl (%s)", strerror(errno));
-      exit(1);
+      pgagroal_log_fatal("epoll_ctl error when adding fd %d : %s", w->snd_fd, strerror(errno));
+      return EV_FATAL;
    }
 
    return EV_OK;
@@ -1342,14 +1325,15 @@ __epoll_io_stop(struct ev_loop* ev, struct ev_io* target)
 {
    if (epoll_ctl(ev->epollfd, EPOLL_CTL_DEL, target->fd, NULL) == -1)
    {
+      /* TODO: DOCUMENT: revisit this, what is this exactly? */
       if (errno == EBADF || errno == ENOENT || errno == EINVAL)
       {
-         pgagroal_log_debug("ev: epoll_ctl failed (%s)", strerror(errno));
+         pgagroal_log_error("epoll_ctl error: %s", strerror(errno));
       }
       else
       {
-         pgagroal_log_fatal("ev: epoll_ctl (%s)", strerror(errno));
-         exit(1);
+         pgagroal_log_fatal("epoll_ctl error: %s", strerror(errno));
+         return EV_FATAL;
       }
    }
    return EV_OK;
@@ -1364,7 +1348,7 @@ __epoll_io_handler(struct ev_loop* loop, struct ev_io* w)
          return __epoll_accept_handler(loop, w);
       case EV_SEND:
          return __epoll_send_handler(loop, w);
-      case EV_RECEIVE:
+      case EV_RCV_SND:
          return __epoll_receive_handler(loop, w);
       default:
          pgagroal_log_fatal("unknown event type: %d", w->type);
@@ -1390,7 +1374,8 @@ __epoll_accept_handler(struct ev_loop* loop, struct ev_io* w)
    else
    {
       pgagroal_socket_nonblocking(client_fd, true);
-      w->client_fd = client_fd;
+      /* NOTE(hc): correct, do not touch */
+      w->rcv_fd = client_fd;
       w->cb(loop, w, ret);
    }
 

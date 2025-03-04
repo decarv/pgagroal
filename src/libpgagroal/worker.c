@@ -140,7 +140,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
          p = session_pipeline();
       }
 
-      pgagroal_ev_io_receive_init(&client_io.io, client_fd, p.client);
+      pgagroal_ev_rcv_snd_init(&client_io.io, client_fd, config->connections[slot].fd, p.client);
       client_io.client_fd = client_fd;
       client_io.server_fd = config->connections[slot].fd;
       client_io.slot = slot;
@@ -150,7 +150,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
 
       if (config->pipeline != PIPELINE_TRANSACTION)
       {
-         pgagroal_ev_io_receive_init(&server_io.io, config->connections[slot].fd, p.server);
+         pgagroal_ev_rcv_snd_init(&server_io.io, config->connections[slot].fd, client_fd, p.server);
          server_io.client_fd = client_fd;
          server_io.server_fd = config->connections[slot].fd;
          server_io.slot = slot;

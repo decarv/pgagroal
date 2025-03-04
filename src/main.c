@@ -1254,14 +1254,14 @@ accept_main_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    memset(&address, 0, sizeof(address));
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->rcv_fd;
    if (client_fd == -1)
    {
       if (accept_fatal(errno) && keep_running)
       {
          char pgsql[MISC_LENGTH];
 
-         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_io();
          shutdown_uds();
@@ -1309,7 +1309,7 @@ accept_main_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;
@@ -1385,7 +1385,7 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    errno = 0;
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->rcv_fd;
 
    pgagroal_prometheus_self_sockets_add();
 
@@ -1393,7 +1393,7 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    {
       if (accept_fatal(errno) && keep_running)
       {
-         pgagroal_log_warn("Restarting management due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("Restarting management due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_mgt();
 
@@ -1409,7 +1409,7 @@ accept_mgt_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;
@@ -1926,7 +1926,7 @@ accept_transfer_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    errno = 0;
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->rcv_fd;
 
    pgagroal_prometheus_self_sockets_add();
 
@@ -1934,7 +1934,7 @@ accept_transfer_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    {
       if (accept_fatal(errno) && keep_running)
       {
-         pgagroal_log_warn("Restarting transfer due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("Restarting transfer due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_mgt();
 
@@ -1950,7 +1950,7 @@ accept_transfer_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;
@@ -2106,7 +2106,7 @@ accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    errno = 0;
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->rcv_fd;
 
    pgagroal_prometheus_self_sockets_add();
 
@@ -2114,7 +2114,7 @@ accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    {
       if (accept_fatal(errno) && keep_running)
       {
-         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_metrics();
 
@@ -2143,7 +2143,7 @@ accept_metrics_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;
@@ -2181,7 +2181,7 @@ accept_management_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
 
    config = (struct main_configuration*)shmem;
 
-   client_fd = watcher->client_fd;
+   client_fd = watcher->rcv_fd;
 
    pgagroal_prometheus_self_sockets_add();
 
@@ -2189,7 +2189,7 @@ accept_management_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
    {
       if (accept_fatal(errno) && keep_running)
       {
-         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_warn("Restarting listening port due to: %s (%d)", strerror(errno), watcher->rcv_fd);
 
          shutdown_management();
 
@@ -2218,7 +2218,7 @@ accept_management_cb(struct ev_loop* loop, struct ev_io* watcher, int revents)
       }
       else
       {
-         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->fd);
+         pgagroal_log_debug("accept: %s (%d)", strerror(errno), watcher->rcv_fd);
       }
       errno = 0;
       return;
