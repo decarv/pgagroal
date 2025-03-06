@@ -50,7 +50,6 @@ jobs:
       run: |
         echo "PATH=$PATH:/usr/lib/postgresql/17/bin" >> $GITHUB_ENV
         echo $PATH
-    - name: Start postgres
     - name: Start postgres & setup test table
       run: |
         sudo systemctl start postgresql || exit 1
@@ -175,6 +174,7 @@ jobs:
       run: |
         source /tmp/functions.sh
         verify_shutdown
+      working-directory: /home/runner/work/pgagroal/pgagroal/build/src/
 
       #  build-macos:
       #
