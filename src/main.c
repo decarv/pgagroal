@@ -2291,6 +2291,7 @@ coredump_cb(struct event_loop* loop, struct signal_watcher* w, int revents)
 {
    pgagroal_log_info("pgagroal: core dump requested");
    pgagroal_pool_status();
+   remove_pidfile();
    abort();
 }
 
