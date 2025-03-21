@@ -120,6 +120,10 @@ static int
 write_message_from_buffer(struct io_watcher* watcher, struct message* msg)
 {
    int sent_bytes = pgagroal_event_prep_submit_send(watcher, msg);
+   if (!sent_bytes) /* TODO: consider removing this */
+   {
+      sent_bytes = msg->length;
+   }
 
    if (msg->length == 0)
    {

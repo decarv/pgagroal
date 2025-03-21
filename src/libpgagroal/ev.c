@@ -236,7 +236,7 @@ pgagroal_event_loop_init(void)
       sq_poll = false; /* puts too much pressure on the system or im using it wrong */
       use_huge = false; /* TODO: not implemented */
       fast_poll = false; /* TODO: haven't even been able to init the loop with this yet */
-      mshot = false;
+      mshot = true;
 
       if (use_huge)
       {
@@ -507,6 +507,8 @@ pgagroal_periodic_stop(struct periodic_watcher* target)
 
 #if HAVE_LINUX
 
+/* This function is used to bounce a message when recvd. io_uring_prep_send guarantees that
+ * the message->data does not need to be kept uncorrupted after submit */
 int
 pgagroal_event_prep_submit_send(struct io_watcher* w, struct message* msg)
 {
@@ -516,7 +518,11 @@ pgagroal_event_prep_submit_send(struct io_watcher* w, struct message* msg)
 
    sqe = io_uring_get_sqe(&loop->ring);
    io_uring_sqe_set_data(sqe, 0); /* data needs to be null */
+#if 0
    io_uring_prep_send(sqe, w->fds.worker.snd_fd, msg->data, msg->length, MSG_WAITALL | MSG_NOSIGNAL);
+#else
+   io_uring_prep_send_zc(sqe, w->fds.worker.snd_fd, msg->data, msg->length, 0, 0);
+#endif
 
    io_uring_submit(&loop->ring);
 
@@ -630,14 +636,19 @@ pgagroal_prep_send_recv(struct io_watcher* w, struct message* msg)
       return -1;
    }
 
-   rcv_sqe = io_uring_get_sqe(&loop->ring);
-   io_uring_sqe_set_data(rcv_sqe, RECV_OP);
-   io_uring_prep_recv(rcv_sqe, w->fds.worker.rcv_fd, msg->data, buf_size, 0);
-   rc = io_uring_submit(&loop->ring);
-   if (rc != 1)
+   if (!mshot)
    {
-      pgagroal_log_error("io_uring_submit error: on submit recv");
-      return -1;
+      rcv_sqe = io_uring_get_sqe(&loop->ring);
+      io_uring_sqe_set_data(rcv_sqe, RECV_OP);
+
+      io_uring_prep_recv(rcv_sqe, w->fds.worker.rcv_fd, msg->data, buf_size, 0);
+
+      rc = io_uring_submit(&loop->ring);
+      if (rc != 1)
+      {
+         pgagroal_log_error("io_uring_submit error: on submit recv");
+         return -1;
+      }
    }
 
    return sent_bytes;
@@ -983,7 +994,6 @@ ev_io_uring_receive_handler(struct event_loop* loop, struct io_watcher* w,
    if (!(cqe->flags & IORING_CQE_F_BUFFER) && !(cqe->res))
    {
       pgagroal_log_debug("Connection closed");
-      msg->data = NULL;
       msg->length = 0;
       ret = EV_CONNECTION_CLOSED;
    }
