@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 The pgagroal community
+ * Copyright (C) 2025 The pgagroal community
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -56,17 +56,15 @@ extern "C" {
 #include <sys/signalfd.h>
 #endif /* HAVE_LINUX */
 
+#define EXPERIMENTAL_FEATURE_ZERO_COPY_ENABLED      0
+#define EXPERIMENTAL_FEATURE_FAST_POLL_ENABLED      0
+#define EXPERIMENTAL_FEATURE_USE_HUGE_ENABLED       0
+#define EXPERIMENTAL_FEATURE_RECV_MULTISHOT_ENABLED 0
+#define EXPERIMENTAL_FEATURE_IOVECS                 0
+
 #define ALIGNMENT sysconf(_SC_PAGESIZE)
-
-#define BUFFER_COUNT 1
 #define MAX_EVENTS   32
-
-/* io_uring new features */
-#define ZERO_COPY_ENABLED      0
-#define FAST_POLL_ENABLED      0
-#define USE_HUGE_ENABLED       0
-#define RECV_MULTISHOT_ENABLED 0
-
+#define INITIAL_BUFFER_COUNT 1
 #if HAVE_LINUX
 #define PGAGROAL_NSIG _NSIG
 #else
@@ -126,32 +124,25 @@ typedef struct event_watcher
  */
 struct io_watcher
 {
-   event_watcher_t event_watcher; /**< First member: Pointer to the event watcher in the loop */
+   event_watcher_t event_watcher;       /**< First member: Pointer to the event watcher in the loop */
    union
    {
       struct
       {
-         int client_fd; /**< Main loop client file descriptor */
-         int listen_fd; /**< Main loop accept (listen) file descriptor */
-      } main; /**< Struct that holds the file descriptors for the main loop */
+         int client_fd;                 /**< Main loop client file descriptor */
+         int listen_fd;                 /**< Main loop accept (listen) file descriptor */
+      } main;                           /**< Struct that holds the file descriptors for the main loop */
       struct
       {
-         int rcv_fd; /**< File descriptor for receiving messages */
-         int snd_fd; /**< File descriptor for sending messages */
-      } worker; /**< Struct that holds the file descriptors for the worker */
+         int rcv_fd;                    /**< File descriptor for receiving messages */
+         int snd_fd;                    /**< File descriptor for sending messages */
+      } worker;                         /**< Struct that holds the file descriptors for the worker */
       int __fds[2];
-   } fds; /**< Set of file descriptors used for I/O */
-   bool ssl; /**< Indicates if SSL/TLS is used on this connection. */
-   void (*cb)(struct event_loop*, struct io_watcher* watcher, int err); /**< Event callback. */
-
-#if HAVE_LINUX
-#if 0
-   /* XXX: This will probably be needed if multishot send is implemented */
-   int bgid;
-   struct io_uring_buf_ring* br;  /**< Pointer to the io_uring buffer ring internal structure. */
-   void* buf; /**< Pointer to the buffer used for I/O operations. */
-#endif
-#endif /* HAVE_LINUX */
+   } fds;                               /**< Set of file descriptors used for I/O */
+   bool ssl;                            /**< Indicates if SSL/TLS is used on this connection. */
+   void (*cb)(struct event_loop*,
+              struct io_watcher* watcher,
+              int err);                 /**< Event callback. */
 };
 
 /**
@@ -162,9 +153,11 @@ struct io_watcher
  */
 struct signal_watcher
 {
-   event_watcher_t event_watcher; /**< First member: Pointer to the event watcher in the loop */
-   int signum; /**< Signal number to watch for. */
-   void (*cb)(struct event_loop*, struct signal_watcher* watcher, int err); /**< Event callback. */
+   event_watcher_t event_watcher;               /**< First member. Pointer to the event watcher in the loop */
+   int signum;                                  /**< Signal number to watch for. */
+   void (*cb)(struct event_loop*,
+              struct signal_watcher* watcher,
+              int err);                         /**< Event callback. */
 };
 
 /**
@@ -175,12 +168,12 @@ struct signal_watcher
  */
 struct periodic_watcher
 {
-   event_watcher_t event_watcher; /**< First member: Pointer to the event watcher in the loop */
+   event_watcher_t event_watcher;       /**< First member. Pointer to the event watcher in the loop */
 #if HAVE_LINUX
-   struct __kernel_timespec ts; /**< Timespec struct for io_uring loop. */
-   int fd; /**< File descriptor for epoll-based periodic watcher. */
+   struct __kernel_timespec ts;         /**< Timespec struct for io_uring loop. */
+   int fd;                              /**< File descriptor for epoll-based periodic watcher. */
 #else
-   int interval; /**< Interval for kqueue timer. */
+   int interval;                        /**< Interval for kqueue timer. */
 #endif  /* HAVE_LINUX */
    void (*cb)(struct event_loop*, struct periodic_watcher* watcher, int err); /**< Event callback. */
 };
@@ -194,45 +187,37 @@ struct periodic_watcher
  */
 struct event_loop
 {
-   volatile bool running; /**< Flag indicating if the event loop is running. */
-   atomic_bool atomic_running; /**< Atomic flag for thread-safe running state. */
-   sigset_t sigset; /**< Signal set used for handling signals in the event loop. */
+   atomic_bool running;                 /**< Flag indicating if the event loop is running. */
+   sigset_t sigset;                     /**< Signal set used for handling signals in the event loop. */
    event_watcher_t* events[MAX_EVENTS]; /**< List of events */
-   int events_nr; /**< Size of list of events */
+   int events_nr;                       /**< Size of list of events */
 
-#if 0
-   /* XXX: implement as an alternative to global function pointers */
    struct
    {
-      int (*init)(); /**< Initializes the event loop backend */
-      int (*loop)(); /**< Runs the event loop, processing events */
-      int (*io_start)(struct io_watcher* watcher); /**< Starts an I/O watcher in the event loop */
-      int (*io_stop)(struct io_watcher* watcher); /**< Stops an I/O watcher in the event loop */
-      int (*signal_init)(struct signal_watcher* watcher); /**< Initializes a signal watcher */
-      int (*signal_start)(struct signal_watcher* watcher); /**< Starts a signal watcher in the event loop */
-      int (*signal_stop)(struct signal_watcher* watcher); /**< Stops a signal watcher in the event loop */
-      int (*periodic_init)(struct periodic_watcher* watcher); /**< Initializes a periodic watcher */
-      int (*periodic_start)(struct periodic_watcher* watcher); /**< Starts a periodic watcher in the event loop */
-      int (*periodic_stop)(struct periodic_watcher* watcher); /**< Stops a periodic watcher in the event loop */
-   } ops;
-#endif
+      struct io_uring_buf_ring* br;     /**< Buffer ring used internally by io_uring */
+      void* buf;                        /**< Pointer to the actual buffer being used */
+      bool pending_send;                /**< A send is still pending */
+      int cnt;                          /**< The number of buffers */
+   } br;                                /**< The buffer ring struct */
 
 #if HAVE_LINUX
-   struct io_uring_cqe* cqe;
-   struct io_uring ring;
-   int bid; /**< io_uring: Next buffer id. */
-#if 0
+   struct io_uring ring;                /**< io_uring ring */
+   int bid;                             /**< Next buffer id */
+#if EXPERIMENTAL_FEATURE_IOVECS
    /* XXX: Test with iovecs for send/recv io_uring */
    int iovecs_nr;
    struct iovec* iovecs;
-#endif
-   int epollfd; /**< File descriptor for the epoll instance (used with epoll backend). */
+#endif /* EXPERIMENTAL_FEATURE_IOVECS */
+   int epollfd;                         /**< File descriptor for the epoll instance (used with epoll backend). */
 #else
-   int kqueuefd; /**< File descriptor for the kqueue instance (used with kqueue backend). */
+   int kqueuefd;                        /**< File descriptor for the kqueue instance (used with kqueue backend). */
 #endif /* HAVE_LINUX */
-   void* buffer; /**< Pointer to a buffer used to read in bytes. */
+   void* buffer;                        /**< Pointer to a buffer used to read in bytes. */
 };
 
+/**
+ * Callbacks for each type of watcher
+ */
 typedef void (*io_cb)(struct event_loop*, struct io_watcher* watcher, int err);
 typedef void (*signal_cb)(struct event_loop*, struct signal_watcher* watcher, int err);
 typedef void (*periodic_cb)(struct event_loop*, struct periodic_watcher* watcher, int err);
@@ -242,7 +227,7 @@ typedef void (*periodic_cb)(struct event_loop*, struct periodic_watcher* watcher
  * @param config Pointer to the configuration struct
  * @return Pointer to the initialized event loop
  */
-struct event_loop*pgagroal_event_loop_init(void);
+struct event_loop* pgagroal_event_loop_init(void);
 
 /**
  * Start the main event loop
@@ -313,11 +298,6 @@ int pgagroal_io_start(struct io_watcher* watcher);
  * @param w Pointer to the io event watcher struct
  * @return Return code
  */
-#define pgagroal_event_stop(w) \
-        do { __pgagroal_event_stop(&((event_watcher_t){ .type = w.type, .watcher = {&w} })); } while (0)
-
-int __pgagroal_event_stop(event_watcher_t* w);
-
 int pgagroal_io_stop(struct io_watcher* watcher);
 
 /**
@@ -415,19 +395,6 @@ int
 pgagroal_event_prep_submit_recv_outside_loop(struct io_watcher* watcher, struct message* msg);
 
 /**
- * @brief Submit a send and a receive operation using io_uring.
- *
- * This function was designed to be used outside of the worker's event loop.
- *
- * @param watcher Pointer to the I/O watcher structure.
- * @param msg Pointer to the message structure containing data to send (and to store received data).
- *
- * @return The number of bytes sent on success, or -1 on error.
- */
-int
-pgagroal_prep_send_recv(struct io_watcher* w, struct message* msg);
-
-/**
  * @brief Wait for a receive operation to complete using io_uring.
  *
  * Blocks until a receive operation completes. Once complete, the number of bytes received
@@ -439,6 +406,10 @@ pgagroal_prep_send_recv(struct io_watcher* w, struct message* msg);
  * @return The number of bytes received.
  */
 int
-pgagroal_wait_recv(struct io_watcher* watcher, struct message* msg);
+pgagroal_wait_recv(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* EV_H */

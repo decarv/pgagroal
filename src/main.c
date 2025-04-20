@@ -1246,7 +1246,7 @@ error:
 }
 
 static void
-accept_main_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
+accept_main_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    struct sockaddr_in6 client_addr;
    int client_fd;
@@ -1374,7 +1374,7 @@ accept_main_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
 }
 
 static void
-accept_mgt_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
+accept_mgt_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    int client_fd;
    int32_t id;
@@ -1922,7 +1922,7 @@ error:
 }
 
 static void
-accept_transfer_cb(struct event_loop* loop __attribute__((unused)), struct ev_io* watcher, int revents)
+accept_transfer_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    int client_fd;
    int id = -1;
@@ -2105,7 +2105,7 @@ error:
 }
 
 static void
-accept_metrics_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
+accept_metrics_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    int client_fd;
    struct main_configuration* config;
@@ -2194,7 +2194,7 @@ accept_metrics_cb(struct event_loop* loop, struct io_watcher* watcher, int reven
 }
 
 static void
-accept_management_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
+accept_management_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    struct sockaddr_in6 client_addr;
    int client_fd;
@@ -2279,7 +2279,7 @@ accept_management_cb(struct event_loop* loop, struct io_watcher* watcher, int re
 }
 
 static void
-shutdown_cb(struct event_loop* loop, ev_signal* w __attribute__((unused)), int revents __attribute__((unused)))
+shutdown_cb(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w __attribute__((unused)), int revents __attribute__((unused)))
 {
    pgagroal_log_debug("pgagroal: shutdown requested");
    pgagroal_pool_status();
@@ -2288,14 +2288,14 @@ shutdown_cb(struct event_loop* loop, ev_signal* w __attribute__((unused)), int r
 }
 
 static void
-reload_cb(struct event_loop* loop __attribute__((unused)), ev_signal* w __attribute__((unused)), int revents __attribute__((unused)))
+reload_cb(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w __attribute__((unused)), int revents __attribute__((unused)))
 {
    pgagroal_log_debug("pgagroal: reload requested");
    reload_configuration();
 }
 
 static void
-graceful_cb(struct event_loop* loop, ev_signal* w __attribute__((unused)), int revents __attribute__((unused)))
+graceful_cb(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w __attribute__((unused)), int revents __attribute__((unused)))
 {
    struct main_configuration* config;
 
@@ -2315,7 +2315,7 @@ graceful_cb(struct event_loop* loop, ev_signal* w __attribute__((unused)), int r
 }
 
 static void
-coredump_cb(struct event_loop* loop __attribute__((unused)), ev_signal* w __attribute__((unused)), int revents __attribute__((unused)))
+coredump_cb(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w __attribute__((unused)), int revents __attribute__((unused)))
 {
    pgagroal_log_info("pgagroal: core dump requested");
    pgagroal_pool_status();
@@ -2324,14 +2324,14 @@ coredump_cb(struct event_loop* loop __attribute__((unused)), ev_signal* w __attr
 }
 
 static void
-sigchld_cb(struct event_loop* loop, struct signal_watcher* w, int sig)
+sigchld_cb(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w __attribute__((unused)), int sig __attribute__((unused)))
 {
    while (waitpid(-1, NULL, WNOHANG) > 0)
       ;
 }
 
 static void
-idle_timeout_cb(struct event_loop* loop, struct periodic_watcher* w, int revents)
+idle_timeout_cb(struct event_loop* loop __attribute__((unused)), struct periodic_watcher* w __attribute__((unused)), int revents)
 {
    if (revents != PGAGROAL_EVENT_RC_OK)
    {
@@ -2349,7 +2349,7 @@ idle_timeout_cb(struct event_loop* loop, struct periodic_watcher* w, int revents
 }
 
 static void
-max_connection_age_cb(struct event_loop* loop __attribute__((unused)), ev_periodic* w __attribute__((unused)), int revents)
+max_connection_age_cb(struct event_loop* loop __attribute__((unused)), struct periodic_watcher* w __attribute__((unused)), int revents)
 {
    if (revents != PGAGROAL_EVENT_RC_OK)
    {
@@ -2367,7 +2367,7 @@ max_connection_age_cb(struct event_loop* loop __attribute__((unused)), ev_period
 }
 
 static void
-validation_cb(struct event_loop* loop __attribute__((unused)), ev_periodic* w __attribute__((unused)), int revents)
+validation_cb(struct event_loop* loop __attribute__((unused)), struct periodic_watcher* w __attribute__((unused)), int revents)
 {
    if (revents != PGAGROAL_EVENT_RC_OK)
    {
@@ -2385,7 +2385,7 @@ validation_cb(struct event_loop* loop __attribute__((unused)), ev_periodic* w __
 }
 
 static void
-disconnect_client_cb(struct event_loop* loop __attribute__((unused)), ev_periodic* w __attribute__((unused)), int revents)
+disconnect_client_cb(struct event_loop* loop __attribute__((unused)), struct periodic_watcher* w __attribute__((unused)), int revents)
 {
    if (revents != PGAGROAL_EVENT_RC_OK)
    {
@@ -2403,7 +2403,7 @@ disconnect_client_cb(struct event_loop* loop __attribute__((unused)), ev_periodi
 }
 
 static void
-rotate_frontend_password_cb(struct event_loop* loop __attribute__((unused)), ev_periodic* w __attribute__((unused)), int revents)
+rotate_frontend_password_cb(struct event_loop* loop __attribute__((unused)), struct periodic_watcher* w __attribute__((unused)), int revents)
 {
    char* pwd;
 

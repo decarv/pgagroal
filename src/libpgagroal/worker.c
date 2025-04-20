@@ -312,7 +312,7 @@ pgagroal_worker(int client_fd, char* address, char** argv)
 }
 
 static void
-signal_cb(struct event_loop* loop, ev_signal* w, int revents __attribute__((unused)))
+signal_callback(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w, int revents __attribute__((unused)))
 {
    struct signal_info* si;
 

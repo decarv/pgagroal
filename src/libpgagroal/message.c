@@ -97,7 +97,7 @@ pgagroal_write_socket_message(int socket, struct message* msg)
 }
 
 static int
-read_message_from_buffer(struct io_watcher* watcher, struct message** msg_p)
+read_message_from_buffer(struct io_watcher* watcher __attribute__((unused)), struct message** msg_p)
 {
    struct message* msg = pgagroal_memory_message();
 
@@ -133,25 +133,9 @@ write_message_from_buffer(struct io_watcher* watcher, struct message* msg)
 }
 
 static int __attribute__((unused))
-send_recv_from_buffer(struct io_watcher* watcher, struct message* msg)
+read_from_buffer(struct io_watcher* watcher __attribute__((unused)), struct message* msg)
 {
-   int sent_bytes = pgagroal_prep_send_recv(watcher, msg);
-
-   if (msg->length == 0)
-   {
-      return MESSAGE_STATUS_ZERO;
-   }
-   if (sent_bytes < msg->length)
-   {
-      return MESSAGE_STATUS_ERROR;
-   }
-   return MESSAGE_STATUS_OK;
-}
-
-static int __attribute__((unused))
-read_from_buffer(struct io_watcher* watcher, struct message* msg)
-{
-   int read_bytes = pgagroal_wait_recv(watcher, msg);
+   int read_bytes = pgagroal_wait_recv();
 
    ((struct message*)msg)->length = read_bytes;
    msg->kind = (signed char)(*((char*)msg->data));
@@ -632,24 +616,12 @@ error:
 int
 pgagroal_write_discard_all(SSL* ssl, int socket)
 {
-#if 0
-   struct main_configuration* config = (struct main_configuration*)shmem;
-#endif
-
    int status;
    int size = 18;
 
    char discard[size];
    struct message msg;
    struct message* reply = NULL;
-
-#if 0
-   struct io_watcher watcher = {
-      .type = EV_WORKER,
-      .fds.worker.rcv_fd = socket,
-      .fds.worker.snd_fd = socket,
-   };
-#endif
 
    memset(&msg, 0, sizeof(struct message));
    memset(&discard, 0, sizeof(discard));
@@ -662,15 +634,7 @@ pgagroal_write_discard_all(SSL* ssl, int socket)
    msg.length = size;
    msg.data = &discard;
 
-#if 0
-   if (config->ev_backend == PGAGROAL_EVENT_BACKEND_IO_URING)
-   {
-      status = send_recv_from_buffer(&watcher, &msg);
-   }
-   else if (ssl == NULL)
-#else
    if (ssl == NULL)
-#endif
    {
       status = write_message(socket, &msg);
    }
@@ -683,19 +647,11 @@ pgagroal_write_discard_all(SSL* ssl, int socket)
       goto error;
    }
 
-   /* FIXME: someone is destroying the memory before reaching here in the worker */
+   /* XXX: someone is destroying the memory before reaching here in the worker.
+    * Allocate another buffer for now, but this needs fixing. */
    pgagroal_memory_init();
 
-#if 0
-   if (config->ev_backend == PGAGROAL_EVENT_BACKEND_IO_URING)
-   {
-      status = read_from_buffer(&watcher, &msg);
-      reply = &msg;
-   }
-   else if (ssl == NULL)
-#else
    if (ssl == NULL)
-#endif
    {
       status = read_message(socket, true, 0, &reply);
    }

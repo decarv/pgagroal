@@ -97,6 +97,6 @@ Required tools and dependencies (like psql, pg_isready, and others) are installe
 
 ## TODO
 
-- Implement configs 05 and 06
-- Finish the `benchmark.sh` script and add metrics
-- Add possibility to test on FreeBSD
+- [ ] Implement configs 05 and 06
+- [ ] Finish the `benchmark.sh` script and add metrics
+- [ ] Add FreeBSD tests

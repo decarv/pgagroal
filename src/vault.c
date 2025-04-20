@@ -656,7 +656,7 @@ read_users_path:
 }
 
 static void
-shutdown_cb(struct event_loop* loop, ev_signal* w __attribute__((unused)), int revents __attribute__((unused)))
+shutdown_cb(struct event_loop* loop __attribute__((unused)), struct signal_watcher* w __attribute__((unused)), int revents __attribute__((unused)))
 {
    pgagroal_log_debug("pgagroal-vault: Shutdown requested");
    pgagroal_event_loop_break();
@@ -664,7 +664,7 @@ shutdown_cb(struct event_loop* loop, ev_signal* w __attribute__((unused)), int r
 }
 
 static void
-accept_vault_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
+accept_vault_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    struct sockaddr_in6 client_addr;
 
@@ -761,7 +761,7 @@ accept_vault_cb(struct event_loop* loop, struct io_watcher* watcher, int revents
 }
 
 static void
-accept_metrics_cb(struct event_loop* loop, struct io_watcher* watcher, int revents)
+accept_metrics_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents)
 {
    struct sockaddr_in6 client_addr;
    socklen_t client_addr_length;

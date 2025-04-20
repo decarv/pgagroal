@@ -402,8 +402,10 @@ pgagroal_validate_configuration(void* shm, bool has_unix_socket, bool has_main_s
    bool tls;
    struct stat st;
    struct main_configuration* config;
+#if HAVE_LINUX
    int fd;
    char rval;
+#endif /* HAVE_LINUX */
 
    tls = false;
 
@@ -752,6 +754,7 @@ pgagroal_validate_configuration(void* shm, bool has_unix_socket, bool has_main_s
       config->ev_backend = DEFAULT_EVENT_BACKEND;
    }
 
+#if HAVE_LINUX
    if (config->ev_backend == PGAGROAL_EVENT_BACKEND_IO_URING)
    {
       /* check if io_uring is enabled or works for supported configuration, else fallback to next backend */
@@ -787,6 +790,7 @@ fallback:
          config->ev_backend = PGAGROAL_EVENT_BACKEND_EPOLL;
       }
    }
+#endif /* HAVE_LINUX */
    pgagroal_log_debug("Selected backend '%s'", to_backend_str(config->ev_backend));
 
    // do some last initialization here, since the configuration
@@ -2873,6 +2877,11 @@ transfer_configuration(struct main_configuration* config, struct main_configurat
    {
       changed = true;
    }
+
+   config->keep_alive = reload->keep_alive;
+   config->nodelay = reload->nodelay;
+   config->non_blocking = reload->non_blocking;
+   config->backlog = reload->backlog;
 
    /* hugepage */
    if (restart_int("hugepage", config->common.hugepage, reload->common.hugepage))
@@ -5671,14 +5680,10 @@ add_configuration_response(struct json* res)
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_TLS_CERT_FILE, (uintptr_t)config->common.tls_cert_file, ValueString);
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_TLS_KEY_FILE, (uintptr_t)config->common.tls_key_file, ValueString);
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_TLS_CA_FILE, (uintptr_t)config->common.tls_ca_file, ValueString);
-<<<<<<< HEAD
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_METRICS_CERT_FILE, (uintptr_t)config->common.metrics_cert_file, ValueString);
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_METRICS_KEY_FILE, (uintptr_t)config->common.metrics_key_file, ValueString);
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_METRICS_CA_FILE, (uintptr_t)config->common.metrics_ca_file, ValueString);
-   pgagroal_json_put(res, CONFIGURATION_ARGUMENT_LIBEV, (uintptr_t)config->libev, ValueString);
-=======
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_EV_BACKEND, (uintptr_t)to_backend_str(config->ev_backend), ValueString);
->>>>>>> c7b9423 (Add new custom event loop for I/O layer)
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_KEEP_ALIVE, (uintptr_t)config->keep_alive, ValueBool);
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_NODELAY, (uintptr_t)config->nodelay, ValueBool);
    pgagroal_json_put(res, CONFIGURATION_ARGUMENT_NON_BLOCKING, (uintptr_t)config->non_blocking, ValueBool);
@@ -6358,11 +6363,6 @@ pgagroal_conf_set(SSL* ssl __attribute__((unused)), int client_fd, uint8_t compr
       }
       else if (!strcmp(key, "ev_backend"))
       {
-         max = strlen(config_value);
-         if (max > MISC_LENGTH - 1)
-         {
-            max = MISC_LENGTH - 1;
-         }
          config->ev_backend = to_backend_type(config_value);
          pgagroal_json_put(response, key, (uintptr_t)to_backend_str(config->ev_backend), ValueString);
       }

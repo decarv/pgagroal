@@ -282,7 +282,7 @@ session_periodic(void)
 }
 
 static void
-session_client(struct event_loop* loop, struct ev_io* watcher, int revents __attribute__((unused)))
+session_client(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents __attribute__((unused)))
 {
    int status = MESSAGE_STATUS_ERROR;
    struct worker_io* wi = NULL;
@@ -433,7 +433,7 @@ failover:
 }
 
 static void
-session_server(struct event_loop* loop, struct ev_io* watcher, int revents __attribute__((unused)))
+session_server(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents __attribute__((unused)))
 {
    int status = MESSAGE_STATUS_ERROR;
    bool fatal = false;

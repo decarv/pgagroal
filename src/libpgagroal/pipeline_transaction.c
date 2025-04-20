@@ -192,7 +192,7 @@ transaction_periodic(void)
 }
 
 static void
-transaction_client(struct event_loop* loop, struct ev_io* watcher, int revents __attribute__((unused)))
+transaction_client(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents __attribute__((unused)))
 {
    int status = MESSAGE_STATUS_ERROR;
    SSL* s_ssl = NULL;
@@ -380,7 +380,7 @@ get_error:
 }
 
 static void
-transaction_server(struct event_loop* loop, struct ev_io* watcher, int revents __attribute__((unused)))
+transaction_server(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents __attribute__((unused)))
 {
    int status = MESSAGE_STATUS_ERROR;
    bool has_z = false;
@@ -551,7 +551,7 @@ return_error:
 }
 
 static void
-start_mgt(struct event_loop* loop)
+start_mgt(struct event_loop* loop __attribute__((unused)))
 {
    memset(&io_mgt, 0, sizeof(struct io_watcher));
    pgagroal_event_accept_init(&io_mgt, unix_socket, accept_cb);
@@ -559,7 +559,7 @@ start_mgt(struct event_loop* loop)
 }
 
 static void
-shutdown_mgt(struct event_loop* loop)
+shutdown_mgt(struct event_loop* loop __attribute__((unused)))
 {
    char p[MISC_LENGTH];
    struct main_configuration* config = NULL;
@@ -577,7 +577,7 @@ shutdown_mgt(struct event_loop* loop)
 }
 
 static void
-accept_cb(struct event_loop* loop __attribute__((unused)), struct ev_io* watcher, int revents)
+accept_cb(struct event_loop* loop __attribute__((unused)), struct io_watcher* watcher, int revents __attribute__((unused)))
 {
    int client_fd = -1;
    int id = -1;
