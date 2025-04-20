@@ -58,14 +58,14 @@ extern "C" {
 
 #define ALIGNMENT sysconf(_SC_PAGESIZE)
 
-#define BUFFER_COUNT 1
+#define INITIAL_BUFFER_COUNT 2
 #define MAX_EVENTS   32
 
 /* io_uring new features */
 #define ZERO_COPY_ENABLED      0
 #define FAST_POLL_ENABLED      0
 #define USE_HUGE_ENABLED       0
-#define RECV_MULTISHOT_ENABLED 0
+#define RECV_MULTISHOT_ENABLED 1
 
 #if HAVE_LINUX
 #define PGAGROAL_NSIG _NSIG
@@ -185,10 +185,19 @@ struct periodic_watcher
  */
 struct event_loop
 {
-   atomic_bool running;        /**< Flag indicating if the event loop is running. */
-   sigset_t sigset;            /**< Signal set used for handling signals in the event loop. */
+   atomic_bool running;                 /**< Flag indicating if the event loop is running. */
+   sigset_t sigset;                     /**< Signal set used for handling signals in the event loop. */
    event_watcher_t* events[MAX_EVENTS]; /**< List of events */
    int events_nr;                       /**< Size of list of events */
+
+   struct {
+        struct io_uring_buf_ring *br;   /**< Buffer ring used internally by io_uring */
+        void* buf;                      /**< Pointer to the actual buffer being used */
+        bool pending_send;              /**< A send is still pending */
+        int cnt;                        /**< The number of buffers */
+   } br;                                /**< The buffer ring struct */
+   void* snd_buf; /**< TODO */
+   void* rcv_buf; /**< TODO */
 
 #if 0
    /* XXX: implement as an alternative to global function pointers */
@@ -403,19 +412,6 @@ pgagroal_event_prep_submit_send_outside_loop(struct io_watcher* watcher, struct 
  */
 int
 pgagroal_event_prep_submit_recv_outside_loop(struct io_watcher* watcher, struct message* msg);
-
-/**
- * @brief Submit a send and a receive operation using io_uring.
- *
- * This function was designed to be used outside of the worker's event loop.
- *
- * @param watcher Pointer to the I/O watcher structure.
- * @param msg Pointer to the message structure containing data to send (and to store received data).
- *
- * @return The number of bytes sent on success, or -1 on error.
- */
-int
-pgagroal_prep_send_recv(struct io_watcher* w, struct message* msg);
 
 /**
  * @brief Wait for a receive operation to complete using io_uring.

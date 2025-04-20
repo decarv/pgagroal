@@ -72,7 +72,11 @@ pgagroal_worker(int client_fd, char* address, char** argv)
    SSL* server_ssl = NULL;
 
    pgagroal_start_logging();
+#ifdef RECV_MULTISHOT_ENABLED
+   pgagroal_memory_init2();
+#else
    pgagroal_memory_init();
+#endif
 
    config = (struct main_configuration*)shmem;
 

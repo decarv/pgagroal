@@ -91,6 +91,49 @@ error:
    errno = 0;
 }
 
+
+void
+pgagroal_memory_init2(void)
+{
+#ifdef DEBUG
+   assert(shmem != NULL);
+#endif
+
+   if (message == NULL)
+   {
+      message = (struct message*)calloc(1, sizeof(struct message));
+      if (message == NULL)
+      {
+         goto error;
+      }
+   }
+
+   if (data == NULL)
+   {
+   
+      if (data == NULL)
+      {
+         goto error;
+      }
+   }
+
+   message->kind = 0;
+   message->length = 0;
+   message->data = data;
+
+   return;
+
+error:
+
+   pgagroal_log_fatal("Unable to allocate memory");
+
+#ifdef DEBUG
+   pgagroal_backtrace();
+#endif
+
+   errno = 0;
+}
+
 /**
  *
  */
@@ -99,7 +142,7 @@ pgagroal_memory_message(void)
 {
 #ifdef DEBUG
    assert(message != NULL);
-   assert(data != NULL);
+ //  assert(data != NULL);
 #endif
 
    return message;

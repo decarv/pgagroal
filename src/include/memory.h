@@ -44,6 +44,14 @@ extern "C" {
 void
 pgagroal_memory_init(void);
 
+
+/**
+ * Initialize a memory segment for the process local message structure in case of usage
+ * of receive multishot
+ */
+void
+pgagroal_memory_init2(void);
+
 /**
  * Get the message structure
  * @return The structure

@@ -133,22 +133,6 @@ write_message_from_buffer(struct io_watcher* watcher, struct message* msg)
 }
 
 static int __attribute__((unused))
-send_recv_from_buffer(struct io_watcher* watcher, struct message* msg)
-{
-   int sent_bytes = pgagroal_prep_send_recv(watcher, msg);
-
-   if (msg->length == 0)
-   {
-      return MESSAGE_STATUS_ZERO;
-   }
-   if (sent_bytes < msg->length)
-   {
-      return MESSAGE_STATUS_ERROR;
-   }
-   return MESSAGE_STATUS_OK;
-}
-
-static int __attribute__((unused))
 read_from_buffer(struct io_watcher* watcher, struct message* msg)
 {
    int read_bytes = pgagroal_wait_recv(watcher, msg);
