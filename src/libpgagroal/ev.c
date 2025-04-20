@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 The pgagroal community
+ * Copyright (C) 2025 The pgagroal community
  *
  * Redistribution and use in source and binary forms, with or without modification,
  * are permitted provided that the following conditions are met:
@@ -296,15 +296,21 @@ pgagroal_event_loop_destroy(void)
 }
 
 void
+pgagroal_event_loop_start(void)
+{
+   atomic_store(&loop->running, true);
+}
+
+void
 pgagroal_event_loop_break(void)
 {
-   loop->running = false;
+   atomic_store(&loop->running, false);
 }
 
 bool
 pgagroal_event_loop_is_running(void)
 {
-   return loop->running;
+   return atomic_load(&loop->running);
 }
 
 int
@@ -762,8 +768,8 @@ ev_io_uring_loop(void)
       .tv_nsec = 100000LL, /* seems best with 10000LL ms for most loads */
    };
 
-   loop->running = true;
-   while (loop->running)
+   pgagroal_event_loop_start();
+   while (pgagroal_event_loop_is_running())
    {
       ts = &idle_ts;
 
@@ -772,11 +778,13 @@ ev_io_uring_loop(void)
       if (*loop->ring.cq.koverflow)
       {
          pgagroal_log_fatal("io_uring overflow %u", *loop->ring.cq.koverflow);
+         pgagroal_event_loop_break();
          return PGAGROAL_EVENT_RC_FATAL;
       }
       if (*loop->ring.sq.kflags & IORING_SQ_CQ_OVERFLOW)
       {
          pgagroal_log_fatal("io_uring overflow");
+         pgagroal_event_loop_break();
          return PGAGROAL_EVENT_RC_FATAL;
       }
 
@@ -786,7 +794,7 @@ ev_io_uring_loop(void)
          rc = ev_io_uring_handler(cqe);
          if (rc)
          {
-            loop->running = false;
+            pgagroal_event_loop_break();
             break;
          }
          events++;
@@ -1014,8 +1022,8 @@ ev_epoll_loop(void)
    int timeout = 10LL; /* ms */
 #endif
 
-   loop->running = true;
-   while (loop->running)
+   pgagroal_event_loop_start();
+   while (pgagroal_event_loop_is_running())
    {
 #if HAVE_EPOLL_PWAIT2
       nfds = epoll_pwait2(loop->epollfd, events, MAX_EVENTS, &timeout_ts,
@@ -1029,7 +1037,7 @@ ev_epoll_loop(void)
          rc = ev_epoll_handler((void*)events[i].data.u64);
          if (rc)
          {
-            loop->running = false;
+            pgagroal_event_loop_break();
             break;
          }
       }
@@ -1274,8 +1282,8 @@ ev_kqueue_loop(void)
    timeout.tv_sec = 0;
    timeout.tv_nsec = 10000000; /* 10 ms */
 
-   loop->running = true;
-   while (loop->running)
+   pgagroal_event_loop_start();
+   while (pgagroal_event_loop_is_running())
    {
       nfds = kevent(loop->kqueuefd, NULL, 0, events, MAX_EVENTS, &timeout);
       if (nfds == -1)
@@ -1287,7 +1295,7 @@ ev_kqueue_loop(void)
 
          pgagroal_log_error("kevent error: %s", strerror(errno));
          rc = PGAGROAL_EVENT_RC_ERROR;
-         loop->running = false;
+         pgagroal_event_loop_break();
          break;
       }
       for (int i = 0; i < nfds; i++)
@@ -1295,7 +1303,7 @@ ev_kqueue_loop(void)
          rc = ev_kqueue_handler(&events[i]);
          if (rc)
          {
-            loop->running = false;
+            pgagroal_event_loop_break();
             break;
          }
       }

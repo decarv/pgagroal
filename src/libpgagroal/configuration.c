@@ -2845,6 +2845,8 @@ transfer_configuration(struct main_configuration* config, struct main_configurat
       changed = true;
    }
 
+   config->keep_alive = reload->keep_alive;
+
    /* hugepage */
    if (restart_int("hugepage", config->common.hugepage, reload->common.hugepage))
    {

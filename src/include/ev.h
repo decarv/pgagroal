@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 The pgagroal community
+ * Copyright (C) 2025 The pgagroal community
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -143,15 +143,6 @@ struct io_watcher
    } fds; /**< Set of file descriptors used for I/O */
    bool ssl; /**< Indicates if SSL/TLS is used on this connection. */
    void (*cb)(struct event_loop*, struct io_watcher* watcher, int err); /**< Event callback. */
-
-#if HAVE_LINUX
-#if 0
-   /* XXX: This will probably be needed if multishot send is implemented */
-   int bgid;
-   struct io_uring_buf_ring* br;  /**< Pointer to the io_uring buffer ring internal structure. */
-   void* buf; /**< Pointer to the buffer used for I/O operations. */
-#endif
-#endif /* HAVE_LINUX */
 };
 
 /**
@@ -194,11 +185,10 @@ struct periodic_watcher
  */
 struct event_loop
 {
-   volatile bool running; /**< Flag indicating if the event loop is running. */
-   atomic_bool atomic_running; /**< Atomic flag for thread-safe running state. */
-   sigset_t sigset; /**< Signal set used for handling signals in the event loop. */
+   atomic_bool running;        /**< Flag indicating if the event loop is running. */
+   sigset_t sigset;            /**< Signal set used for handling signals in the event loop. */
    event_watcher_t* events[MAX_EVENTS]; /**< List of events */
-   int events_nr; /**< Size of list of events */
+   int events_nr;                       /**< Size of list of events */
 
 #if 0
    /* XXX: implement as an alternative to global function pointers */
@@ -220,7 +210,7 @@ struct event_loop
 #if HAVE_LINUX
    struct io_uring_cqe* cqe;
    struct io_uring ring;
-   int bid; /**< io_uring: Next buffer id. */
+   int bid;                     /**< io_uring: Next buffer id. */
 #if 0
    /* XXX: Test with iovecs for send/recv io_uring */
    int iovecs_nr;
